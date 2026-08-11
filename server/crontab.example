@@ -1,0 +1,6 @@
+CRON_TZ=Europe/Paris
+# Le coach du matin — uniquement les jours de seance (garde-fou grep)
+0 7 * * * grep -qs "^$(date +\%F)" /home/toi/monitoring/coach-velo-plan.tsv && /home/toi/monitoring/claude-routine.sh coach-velo > /dev/null 2>&1
+# Regeneration quotidienne du dashboard et de la page publique
+30 7 * * * /home/toi/mcp/coros-mcp/.venv/bin/python /home/toi/monitoring/coach-velo-dashboard.py > /dev/null 2>&1
+35 7 * * * /home/toi/mcp/coros-mcp/.venv/bin/python /home/toi/monitoring/coach-velo-pub.py > /dev/null 2>&1

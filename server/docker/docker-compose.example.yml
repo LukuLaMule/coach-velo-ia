@@ -1,0 +1,32 @@
+# Heberge dashboard (protege), page publique (/pub) et calendrier (/cal-*) ouverts.
+# PIEGE : les $ du hash htpasswd (openssl passwd -apr1) se doublent en $$.
+services:
+  velo:
+    image: nginx:alpine
+    container_name: velo
+    restart: unless-stopped
+    volumes:
+      - ./public:/usr/share/nginx/html:ro
+    networks:
+      - web
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=web"
+      - "traefik.http.middlewares.velo-auth.basicauth.users=toi:$$apr1$$HASH$$ICI"
+      - "traefik.http.routers.velo-cal.rule=Host(`velo.tondomaine.fr`) && PathPrefix(`/cal-`)"
+      - "traefik.http.routers.velo-cal.entrypoints=websecure"
+      - "traefik.http.routers.velo-cal.tls.certresolver=lets-encrypt"
+      - "traefik.http.routers.velo-cal.priority=20"
+      - "traefik.http.routers.velo-pub.rule=Host(`velo.tondomaine.fr`) && PathPrefix(`/pub`)"
+      - "traefik.http.routers.velo-pub.entrypoints=websecure"
+      - "traefik.http.routers.velo-pub.tls.certresolver=lets-encrypt"
+      - "traefik.http.routers.velo-pub.priority=20"
+      - "traefik.http.routers.velo.rule=Host(`velo.tondomaine.fr`)"
+      - "traefik.http.routers.velo.entrypoints=websecure"
+      - "traefik.http.routers.velo.tls.certresolver=lets-encrypt"
+      - "traefik.http.routers.velo.middlewares=velo-auth"
+      - "traefik.http.routers.velo.priority=10"
+      - "traefik.http.services.velo.loadbalancer.server.port=80"
+networks:
+  web:
+    external: true
