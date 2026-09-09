@@ -87,7 +87,20 @@ async def main():
             "kcal": g("calories", "total_calories"),
             "load": g("training_load", "load", "trainingLoad"),
         })
-    print(json.dumps({"activities": out, "fn": fn_name}))
+    echantillon = None
+    if res:
+        r0 = res[0]
+        echantillon = {}
+        for attr in dir(r0):
+            if attr.startswith("_"):
+                continue
+            val = getattr(r0, attr, None)
+            if callable(val):
+                continue
+            echantillon[attr] = str(val)[:70]
+    print(json.dumps({"activities": out, "fn": fn_name,
+                      "recus": len(res or []), "echantillon": echantillon},
+                     default=str))
 
 asyncio.run(main())
 '''
@@ -118,6 +131,14 @@ def collect_coros():
     res = run_python(COROS_PY, snippet, os.path.join(SECRETS, "coros.env"))
     if "error" in res:
         return [], res
+    if DEBUG:
+        print(f"--- COROS : fonction {res.get('fn')}, "
+              f"{res.get('recus')} enregistrement(s) recu(s) ---", file=sys.stderr)
+        if res.get("echantillon"):
+            print("--- attributs reels du premier enregistrement COROS ---",
+                  file=sys.stderr)
+            print(json.dumps(res["echantillon"], indent=2, ensure_ascii=False)[:1800],
+                  file=sys.stderr)
     acts = []
     for a in res.get("activities", []):
         code = a.get("code")
@@ -304,6 +325,8 @@ def main():
         "agregats_28j": aggregate(acts, 28),
         "sources_en_echec": {k: v for k, v in
                              [("coros", coros_err), ("igpsport", igp_err)] if v},
+        "sources_muettes": [nom for nom, lst in
+                            [("coros", coros_acts), ("igpsport", igp_acts)] if not lst],
     }
     print(json.dumps(out, ensure_ascii=False))
 
