@@ -19,8 +19,13 @@ import sys
 import datetime
 
 MON = os.path.dirname(os.path.abspath(__file__))
-COROS_PY = "/home/opc/mcp/coros-mcp/.venv/bin/python"
-IGP_PY = "/home/opc/mcp/igpsport-mcp/.venv/bin/python"
+
+# Les chemins suivent l utilisateur : le projet a tourne sous opc (Oracle) puis
+# sous ubuntu (OVH). MCP_HOME permet de pointer ailleurs sans toucher au code.
+MCP_HOME = os.environ.get("MCP_HOME", os.path.expanduser("~/mcp"))
+SECRETS = os.path.join(MCP_HOME, "secrets")
+COROS_PY = os.path.join(MCP_HOME, "coros-mcp", ".venv", "bin", "python")
+IGP_PY = os.path.join(MCP_HOME, "igpsport-mcp", ".venv", "bin", "python")
 
 DAYS = int(sys.argv[1]) if len(sys.argv) > 1 else 14
 TODAY = datetime.date.today()
@@ -108,7 +113,7 @@ def collect_coros():
     snippet = (COROS_SNIPPET
                .replace("__SINCE__", SINCE.strftime("%Y%m%d"))
                .replace("__TODAY__", TODAY.strftime("%Y%m%d")))
-    res = run_python(COROS_PY, snippet, "/home/opc/mcp/secrets/coros.env")
+    res = run_python(COROS_PY, snippet, os.path.join(SECRETS, "coros.env"))
     if "error" in res:
         return [], res
     acts = []
@@ -134,7 +139,7 @@ def collect_coros():
 # l'autre du connecteur, on essaie les alias connus.
 IGP_SNIPPET = r'''
 import json, os
-for line in open("/home/opc/mcp/secrets/igpsport.env"):
+for line in open("__IGP_ENV__"):
     if "=" in line and not line.startswith("#"):
         k, v = line.strip().split("=", 1)
         os.environ[k] = v
@@ -168,7 +173,9 @@ print(json.dumps({"activities": rows}))
 
 def collect_igpsport():
     # Large marge : on filtre par date ensuite, le connecteur ne sait pas le faire.
-    snippet = IGP_SNIPPET.replace("__LIMIT__", str(max(20, DAYS * 2)))
+    snippet = (IGP_SNIPPET
+               .replace("__LIMIT__", str(max(20, DAYS * 2)))
+               .replace("__IGP_ENV__", os.path.join(SECRETS, "igpsport.env")))
     res = run_python(IGP_PY, snippet)
     if "error" in res:
         return [], res
