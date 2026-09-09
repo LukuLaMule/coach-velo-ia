@@ -62,7 +62,8 @@ Le principe : **Claude n'intervient que là où il apporte quelque chose** (anal
 | [`server/monitoring/coach-velo-dashboard.py`](server/monitoring/coach-velo-dashboard.py) | Dashboard privé (graphique forme/fatigue façon TrainingPeaks, en français humain) |
 | [`server/monitoring/coach-velo-pub.py`](server/monitoring/coach-velo-pub.py) | Page publique « vitrine » pour les réseaux |
 | [`server/monitoring/coach-velo-plan.tsv`](server/monitoring/coach-velo-plan.tsv) | Le programme 12 semaines, une ligne par séance |
-| [`mcp/push_program.py`](mcp/push_program.py) | Génère et pousse les 17 séances sur le compteur iGPSport (cibles en %FTP) |
+| [`mcp/push_program.py`](mcp/push_program.py) | Génère et pousse les 17 séances sur le compteur iGPSport (cibles en %FTP), après avoir supprimé les anciennes |
+| [`mcp/igpsport_cleanup.py`](mcp/igpsport_cleanup.py) | Supprime les séances P0x en double (aperçu par défaut, `--apply` pour agir) |
 | [`server/crontab.example`](server/crontab.example) | Les 3 crons qui font tourner le tout |
 | [`server/docker/docker-compose.example.yml`](server/docker/docker-compose.example.yml) | Hébergement : racine protégée, `/pub` et `/cal-*` ouverts |
 | [`server/secrets.example/`](server/secrets.example/) | Modèles des fichiers d'identifiants (à remplir, `chmod 600`) |
@@ -126,7 +127,7 @@ Un conteneur nginx derrière Traefik sert le tout (voir le compose d'exemple). S
 
 - **COROS** refuse le login si le compte vient d'Apple/Google → définir un mot de passe dans l'appli.
 - **iGPSport** tape sur le serveur chinois par défaut → `IGPSPORT_REGION=intl` obligatoire, sinon 403.
-- **igpsport-mcp** exige `mcp<2` (import supprimé dans le SDK v2) ; son `list_workouts` renvoie 0 sur le serveur international → passer par l'appel HTTP brut pour lister/supprimer (voir `push_program.py`), sinon on empile des doublons.
+- **igpsport-mcp** exige `mcp<2` (import supprimé dans le SDK v2) ; son `list_workouts` renvoie `[]` sur le serveur international. La requête aboutit, mais la réponse est un objet et pas une liste nue, et la ligne finale `return list(result) if isinstance(result, list) else []` jette tout. `push_program.py` supprimait donc « 0 » ancienne séance et en empilait 17 de plus à chaque push. Il essaie maintenant `list_workouts()` puis retombe sur l'appel HTTP brut (`_request_business`), et **refuse de pousser** si aucun des deux ne répond — une liste vide peut vouloir dire « je ne sais pas » plutôt que « le compte est vide ». `mcp/igpsport_cleanup.py` nettoie les doublons déjà empilés.
 - Le **cookie TrainingPeaks** expire au bout de quelques semaines → prévoir de le renouveler.
 - Les cibles sont compilées en **watts absolus** → re-pousser les séances après chaque test FTP.
 - Dans un `.ics`, les retours à la ligne sont des `\n` **littéraux** — et les backslashes se font manger via ssh + heredoc.
