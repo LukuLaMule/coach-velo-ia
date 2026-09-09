@@ -154,22 +154,31 @@ rows = []
 echantillon = None
 for a in (acts.get("activities") or acts.get("items") or []):
     rid = a.get("ride_id") or a.get("id") or a.get("activity_id")
-    row = {"date": a.get("date") or a.get("start_time"),
+    row = {"date": a.get("start_time") or a.get("date"),
            "name": a.get("title") or a.get("name"),
-           "km": a.get("distance_km") or a.get("distance")}
+           "km": a.get("distance_km") or a.get("distance"),
+           "dplus": a.get("elevation_gain_m"),
+           "seconds": a.get("duration_s")}
     resume = None
     try:
         resume = svc.get_activity_summary(rid)
-        if isinstance(resume, dict):
-            for src, dst in [("duration_s", "seconds"), ("moving_time_s", "seconds"),
-                             ("avg_power_w", "avg_w"), ("normalized_power_w", "np_w"),
-                             ("avg_hr_bpm", "hr"), ("elevation_gain_m", "dplus"),
-                             ("calories", "kcal"), ("training_load", "load")]:
-                v = resume.get(src)
-                if v is not None and dst not in row:
-                    row[dst] = v
     except Exception as exc:
         resume = {"_erreur": f"{type(exc).__name__}: {str(exc)[:120]}"}
+    if isinstance(resume, dict):
+        # la duree est a la racine, les metriques d'effort sous "summary"
+        det = resume.get("summary")
+        det = det if isinstance(det, dict) else {}
+        for src, dst, source in [("duration_s", "seconds", resume),
+                                 ("elevation_gain_m", "dplus", det),
+                                 ("avg_hr_bpm", "hr", det),
+                                 ("avg_power_w", "avg_w", det),
+                                 ("normalized_power_w", "np_w", det),
+                                 ("intensity_factor", "if_", det),
+                                 ("work_kj", "kj", det),
+                                 ("tss", "load", det)]:
+            v = source.get(src)
+            if v is not None and row.get(dst) is None:
+                row[dst] = v
     if echantillon is None:
         echantillon = {"activite_brute": a, "resume_brut": resume}
     rows.append(row)
@@ -207,6 +216,8 @@ def collect_igpsport():
             load=a.get("load"),
             avg_w=a.get("avg_w"),
             np_w=a.get("np_w"),
+            if_=a.get("if_"),
+            kj=a.get("kj"),
         ))
     return acts, None
 
@@ -226,7 +237,7 @@ def parse_date(value):
 
 
 def normalize(source, date, sport, name, seconds, km, dplus, hr, kcal, load,
-              avg_w=None, np_w=None):
+              avg_w=None, np_w=None, if_=None, kj=None):
     d = parse_date(date)
     minutes = round(seconds / 60.0, 1) if isinstance(seconds, (int, float)) else None
     act = {
@@ -245,8 +256,13 @@ def normalize(source, date, sport, name, seconds, km, dplus, hr, kcal, load,
         act["watts_moy"] = round(avg_w)
     if np_w is not None:
         act["np_w"] = round(np_w)
-    # Faute de charge fournie, une estimation grossiere but coherente entre
-    # sports : duree ponderee par le denivele. Explicitement marquee estimee.
+    if if_ is not None:
+        act["intensite"] = round(if_, 2)
+    if kj is not None:
+        act["kj"] = round(kj)
+    # Le TSS iGPSport est une vraie charge et sert tel quel. Pour les sports
+    # ou aucune charge n'est fournie (COROS), estimation grossiere mais
+    # coherente : duree ponderee par le denivele, explicitement marquee.
     if act["charge"] is None and minutes:
         est = minutes + (act["dplus_m"] or 0) / 100.0 * 3
         act["charge"] = round(est)

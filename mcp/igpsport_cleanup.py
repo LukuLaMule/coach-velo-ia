@@ -60,6 +60,36 @@ def extract(res):
     return []
 
 
+def raw_listing():
+    """Refait la requete de client.list_workouts sans son filtre final.
+
+    client.list_workouts() se termine par :
+        return list(result) if isinstance(result, list) else []
+    Sur le serveur international la reponse est un objet et non une liste nue,
+    donc tout est jete et la fonction renvoie []. C'est la cause du "deleted 0"
+    de push_program.py. On refait ici la meme requete et on lit la reponse
+    telle qu'elle arrive.
+
+    Passe par des attributs privees du connecteur : c'est l'appel HTTP brut
+    que le README preconise. Il peut casser a une mise a jour d'igpsport-mcp,
+    d'ou le repli sur le chemin normal en premier.
+    """
+    client = getattr(svc, "client", None)
+    if client is None:
+        return None
+    profile = client._profile
+    endpoints = getattr(sys.modules.get(type(client).__module__), "ep", None)
+    if endpoints is not None:
+        path = profile.resolve_path(endpoints.PATH_WORKOUT_LIST,
+                                    profile.path_workout_list)
+    else:
+        path = profile.path_workout_list
+    query = ("?PageIndex=1&PageSize=200" if profile.key == "intl"
+             else "?pageNo=1&pageSize=200")
+    return client._request_business("GET", path + query, jwt=client._jwt(),
+                                    **client._WO_HDR)
+
+
 def find_listing():
     """Essaie les signatures et methodes plausibles, renvoie (nom, seances)."""
     # list_workouts() ne prend aucun argument (verifie sur le serveur) : inutile
@@ -84,6 +114,22 @@ def find_listing():
         print(f"  {label:<34} {len(items)} seance(s)")
         if items:
             return label, items
+
+    # Le chemin normal jette la reponse du serveur international : on refait
+    # la requete nous-memes.
+    try:
+        raw = raw_listing()
+        items = extract(raw)
+        print(f"  {'appel HTTP brut':<34} {len(items)} seance(s)")
+        if items:
+            return "appel HTTP brut", items
+        if raw is not None:
+            forme = type(raw).__name__
+            cles = list(raw)[:10] if isinstance(raw, dict) else ""
+            print(f"    reponse : {forme} {cles}")
+    except Exception as exc:
+        print(f"  {'appel HTTP brut':<34} {type(exc).__name__}: {str(exc)[:80]}")
+
     return None, []
 
 
