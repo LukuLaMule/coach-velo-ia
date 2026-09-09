@@ -314,6 +314,13 @@ svg text{font:10.5px system-ui;fill:var(--muted);font-variant-numeric:tabular-nu
 .chips button .cnt{font-variant-numeric:tabular-nums;opacity:.6;font-weight:500}
 .today-btn{margin-left:auto;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;
   background:var(--accent);color:#fff;border:0;border-radius:999px;padding:7px 15px}
+.plan-tools.periode{margin-top:-4px}
+.plan-tools .lbl{font-size:10.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--muted)}
+.sel{font:inherit;font-size:12.5px;font-weight:600;color:var(--ink-2);cursor:pointer;
+  background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:6px 12px}
+.sel:hover{border-color:var(--axis)}
+.wk.hide{display:none}
 .plan-layout{display:grid;gap:14px;grid-template-columns:1fr;align-items:start}
 @media(min-width:1000px){.plan-layout{grid-template-columns:minmax(0,1fr) 310px}}
 .cal{background:var(--surface);border:1px solid var(--border);border-radius:16px;
@@ -452,6 +459,11 @@ footer{color:var(--muted);font-size:12.5px;padding:26px 0 40px;text-align:center
 <div class="plan-tools">
   <div class="chips" id="planFilters"></div>
   <button class="today-btn" id="btnToday">Aller a cette semaine</button>
+</div>
+<div class="plan-tools periode">
+  <span class="lbl">Periode</span>
+  <div class="chips" id="planMois"></div>
+  <select class="sel" id="planSem" aria-label="Choisir une semaine"></select>
 </div>
 <div class="plan-layout">
   <div class="cal" id="cal">
@@ -626,7 +638,7 @@ function match(p, f){
   if (f==="avenir") return p.date > today || (p.date===today && !p.emoji);
   return (f==="ok" && p.emoji==="✅") || (f==="warn" && p.emoji==="⚠️") || (f==="stop" && p.emoji==="🛑");
 }
-let filtre = "tout", choisi = null;
+let filtre = "tout", mois = "tout", semChoisie = "", choisi = null;
 
 function detail(key){
   const el = document.getElementById("detail");
@@ -696,7 +708,9 @@ safe("weeks", "Planning", ()=>{
       jours.push(cell+`</div>`);
     }
     const fin = new Date(w.lundi); fin.setDate(fin.getDate()+6);
-    return `<div class="wk${cur?" now":""}" data-code="${w.code}">
+    const mkey = d => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+    const mois2 = mkey(w.lundi)===mkey(fin) ? [mkey(w.lundi)] : [mkey(w.lundi), mkey(fin)];
+    return `<div class="wk${cur?" now":""}" data-code="${w.code}" data-mois="${mois2.join(" ")}">
       <div class="wk-h"><b>${w.code}</b>
         <span class="phc"><i style="background:${PHC[w.lab]||"var(--axis)"}"></i>${esc(w.lab)}</span>
         <span class="rg">${w.lundi.getDate()} → ${fin.getDate()} ${MOIS[fin.getMonth()]}</span></div>
@@ -715,6 +729,45 @@ safe("weeks", "Planning", ()=>{
     });
     document.querySelectorAll("#weeks .sc.free").forEach(b=>b.classList.toggle("dim", filtre!=="tout"));
   }
+  /* Periode : des pastilles de mois et une liste de semaines. Le programme
+     tient sur quatre mois et douze semaines — assez pour tout afficher, trop
+     pour tout lire d'un coup. */
+  const mkey = d => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+  const moisDispo = [];
+  sem.forEach(w=>{
+    const fin = new Date(w.lundi); fin.setDate(fin.getDate()+6);
+    [mkey(w.lundi), mkey(fin)].forEach(m=>{ if (!moisDispo.includes(m)) moisDispo.push(m); });
+  });
+  moisDispo.sort();
+  document.getElementById("planMois").innerHTML =
+    [["tout","Tous les mois"]].concat(moisDispo.map(m=>[m, MOIS[+m.slice(5)-1]]))
+      .map(([k,lab])=>`<button data-m="${k}" aria-pressed="${k===mois}">${lab}</button>`).join("");
+  document.getElementById("planSem").innerHTML =
+    `<option value="">Toutes les semaines</option>` + sem.map(w=>{
+      const fin = new Date(w.lundi); fin.setDate(fin.getDate()+6);
+      return `<option value="${w.code}">${w.code} · ${w.lundi.getDate()} → ${fin.getDate()} ${MOIS[fin.getMonth()]}</option>`;
+    }).join("");
+
+  function periode(){
+    document.querySelectorAll("#weeks .wk").forEach(w=>{
+      const ok = semChoisie ? w.dataset.code===semChoisie
+                            : (mois==="tout" || w.dataset.mois.split(" ").includes(mois));
+      w.classList.toggle("hide", !ok);
+    });
+  }
+  document.querySelectorAll("#planMois button").forEach(b=>{
+    b.addEventListener("click", ()=>{
+      mois = b.dataset.m; semChoisie = "";
+      document.getElementById("planSem").value = "";
+      document.querySelectorAll("#planMois button").forEach(x=>x.setAttribute("aria-pressed", x===b));
+      periode();
+    });
+  });
+  document.getElementById("planSem").addEventListener("change", e=>{
+    semChoisie = e.target.value;
+    periode();
+  });
+
   document.querySelectorAll("#planFilters button").forEach(b=>{
     b.addEventListener("click", ()=>{
       filtre = b.dataset.f;
@@ -731,6 +784,11 @@ safe("weeks", "Planning", ()=>{
     });
   });
   document.getElementById("btnToday").addEventListener("click", ()=>{
+    // la semaine en cours peut etre masquee par le tri : on remet tout a plat
+    mois = "tout"; semChoisie = "";
+    document.getElementById("planSem").value = "";
+    document.querySelectorAll("#planMois button").forEach(x=>x.setAttribute("aria-pressed", x.dataset.m==="tout"));
+    periode();
     const w = document.querySelector("#weeks .wk.now") || document.querySelector("#weeks .wk");
     if (w) w.scrollIntoView({behavior:"smooth", block:"center"});
   });
@@ -744,6 +802,7 @@ safe("weeks", "Planning", ()=>{
     detail({p: idx});
   } else detail(null);
   applique();
+  periode();
 });
 
 /* ---------- reperage dans la page et animations ---------- */
