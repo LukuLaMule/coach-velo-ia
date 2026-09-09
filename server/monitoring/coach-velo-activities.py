@@ -67,15 +67,26 @@ async def main():
                                         if not n.startswith("_") and callable(getattr(api, n))]}))
         return
     fn = getattr(api, fn_name)
+    try:
+        signature = str(inspect.signature(fn))
+    except (TypeError, ValueError):
+        signature = "(?)"
     auth = await api.try_auto_login()
     d0, d1 = "__SINCE__", "__TODAY__"
     res = fn(auth, d0, d1)
     if inspect.isawaitable(res):
         res = await res
+    def champ(rec, *noms):
+        """Les enregistrements peuvent etre des objets ou des dictionnaires."""
+        for n in noms:
+            v = rec.get(n) if isinstance(rec, dict) else getattr(rec, n, None)
+            if v is not None:
+                return v
+        return None
+
     out = []
     for r in (res or []):
-        g = (lambda *ks: next((getattr(r, k) for k in ks
-                               if getattr(r, k, None) is not None), None))
+        g = lambda *ks: champ(r, *ks)
         out.append({
             "date": g("date", "start_date", "day"),
             "code": g("sport_type", "sportType", "type"),
@@ -90,15 +101,14 @@ async def main():
     echantillon = None
     if res:
         r0 = res[0]
-        echantillon = {}
-        for attr in dir(r0):
-            if attr.startswith("_"):
-                continue
-            val = getattr(r0, attr, None)
-            if callable(val):
-                continue
-            echantillon[attr] = str(val)[:70]
-    print(json.dumps({"activities": out, "fn": fn_name,
+        if isinstance(r0, dict):
+            echantillon = {k: str(v)[:70] for k, v in r0.items()}
+        else:
+            echantillon = {a: str(getattr(r0, a, None))[:70] for a in dir(r0)
+                           if not a.startswith("_")
+                           and not callable(getattr(r0, a, None))}
+        echantillon["__type__"] = type(r0).__name__
+    print(json.dumps({"activities": out, "fn": fn_name, "signature": signature,
                       "recus": len(res or []), "echantillon": echantillon},
                      default=str))
 
@@ -132,7 +142,7 @@ def collect_coros():
     if "error" in res:
         return [], res
     if DEBUG:
-        print(f"--- COROS : fonction {res.get('fn')}, "
+        print(f"--- COROS : {res.get('fn')}{res.get('signature')}, "
               f"{res.get('recus')} enregistrement(s) recu(s) ---", file=sys.stderr)
         if res.get("echantillon"):
             print("--- attributs reels du premier enregistrement COROS ---",
