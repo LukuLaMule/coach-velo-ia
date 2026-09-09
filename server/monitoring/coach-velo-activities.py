@@ -1,0 +1,276 @@
+#!/usr/bin/env python
+"""Collecte activite par activite, tous sports, sur les N derniers jours.
+
+Deux sources complementaires, parce qu'aucune ne voit tout :
+  - COROS    : ce que la montre enregistre (course, trail, natation, rando...)
+  - iGPSport : les sorties velo, qui ne passent pas par la montre
+
+Sortie : un JSON sur stdout, une entree par activite plus des agregats par
+sport sur 7 et 28 jours. Destine a etre lu par le coach du matin, qui doit
+pouvoir juger chaque seance individuellement et pas seulement une charge
+globale.
+
+Usage : coach-velo-activities.py [jours]   (defaut 14)
+"""
+import json
+import os
+import subprocess
+import sys
+import datetime
+
+MON = os.path.dirname(os.path.abspath(__file__))
+COROS_PY = "/home/opc/mcp/coros-mcp/.venv/bin/python"
+IGP_PY = "/home/opc/mcp/igpsport-mcp/.venv/bin/python"
+
+DAYS = int(sys.argv[1]) if len(sys.argv) > 1 else 14
+TODAY = datetime.date.today()
+SINCE = TODAY - datetime.timedelta(days=DAYS)
+
+# COROS renvoie des codes numeriques ; on les ramene a des familles lisibles.
+COROS_FAMILIES = {
+    "course": [100, 101, 103],
+    "trail": [102, 105],
+    "rando": [104, 900],
+    "velo": [200, 201, 202, 203, 204, 205, 299],
+    "natation": [300, 301],
+    "renfo": [400, 401, 402, 901, 902, 903, 904, 905, 906, 9901, 9902],
+    "ski": [500, 501, 502, 503],
+    "rameur": [700, 701],
+}
+SPORT_BY_CODE = {c: fam for fam, codes in COROS_FAMILIES.items() for c in codes}
+
+
+# --- Source 1 : COROS -------------------------------------------------------
+# Le nom exact de la fonction d'activites varie selon la version du connecteur
+# (fetch_daily_records / fetch_sleep sont stables, la liste d'activites moins).
+# On resout parmi les noms plausibles et, si rien ne matche, on le dit
+# clairement au lieu de renvoyer une liste vide silencieuse.
+COROS_SNIPPET = r'''
+import asyncio, json, datetime, inspect
+import coros_mcp.coros_api as api
+
+CANDIDATES = ["fetch_activities", "fetch_sport_records", "query_sport_records",
+              "fetch_workouts", "fetch_activity_list", "list_activities"]
+
+async def main():
+    fn_name = next((n for n in CANDIDATES if hasattr(api, n)), None)
+    if fn_name is None:
+        print(json.dumps({"error": "no_activity_fn",
+                          "available": [n for n in dir(api)
+                                        if not n.startswith("_") and callable(getattr(api, n))]}))
+        return
+    fn = getattr(api, fn_name)
+    auth = await api.try_auto_login()
+    d0, d1 = "__SINCE__", "__TODAY__"
+    res = fn(auth, d0, d1)
+    if inspect.isawaitable(res):
+        res = await res
+    out = []
+    for r in (res or []):
+        g = (lambda *ks: next((getattr(r, k) for k in ks
+                               if getattr(r, k, None) is not None), None))
+        out.append({
+            "date": g("date", "start_date", "day"),
+            "code": g("sport_type", "sportType", "type"),
+            "name": g("name", "label", "location"),
+            "seconds": g("total_time", "duration", "workout_time", "moving_time"),
+            "km": g("distance_km", "distance"),
+            "dplus": g("elevation_gain", "total_ascent", "ascent"),
+            "hr": g("avg_hr", "average_hr", "avg_heart_rate"),
+            "kcal": g("calories", "total_calories"),
+            "load": g("training_load", "load", "trainingLoad"),
+        })
+    print(json.dumps({"activities": out, "fn": fn_name}))
+
+asyncio.run(main())
+'''
+
+
+def run_python(interpreter, snippet, env_file=None, timeout=120):
+    """Execute un snippet dans le venv d'un connecteur, renvoie le JSON final."""
+    env = dict(os.environ)
+    if env_file and os.path.exists(env_file):
+        for line in open(env_file):
+            if "=" in line and not line.lstrip().startswith("#"):
+                k, v = line.strip().split("=", 1)
+                env[k] = v
+    try:
+        r = subprocess.run([interpreter, "-c", snippet], capture_output=True,
+                           text=True, timeout=timeout, env=env)
+        lines = [l for l in r.stdout.strip().splitlines() if l.strip()]
+        return json.loads(lines[-1]) if lines else {"error": "empty_output",
+                                                    "stderr": r.stderr[-400:]}
+    except Exception as exc:
+        return {"error": type(exc).__name__, "detail": str(exc)[:300]}
+
+
+def collect_coros():
+    snippet = (COROS_SNIPPET
+               .replace("__SINCE__", SINCE.strftime("%Y%m%d"))
+               .replace("__TODAY__", TODAY.strftime("%Y%m%d")))
+    res = run_python(COROS_PY, snippet, "/home/opc/mcp/secrets/coros.env")
+    if "error" in res:
+        return [], res
+    acts = []
+    for a in res.get("activities", []):
+        code = a.get("code")
+        acts.append(normalize(
+            source="coros",
+            date=a.get("date"),
+            sport=SPORT_BY_CODE.get(code, "autre"),
+            name=a.get("name"),
+            seconds=a.get("seconds"),
+            km=a.get("km"),
+            dplus=a.get("dplus"),
+            hr=a.get("hr"),
+            kcal=a.get("kcal"),
+            load=a.get("load"),
+        ))
+    return acts, None
+
+
+# --- Source 2 : iGPSport (le velo) ------------------------------------------
+# Meme approche defensive que le dashboard : les cles varient d'une version a
+# l'autre du connecteur, on essaie les alias connus.
+IGP_SNIPPET = r'''
+import json, os
+for line in open("/home/opc/mcp/secrets/igpsport.env"):
+    if "=" in line and not line.startswith("#"):
+        k, v = line.strip().split("=", 1)
+        os.environ[k] = v
+from igpsport_mcp.tools._service import IGPSportService
+from igpsport_mcp.config import load_config
+
+svc = IGPSportService(load_config())
+acts = svc.list_activities(limit=__LIMIT__)
+rows = []
+for a in (acts.get("activities") or acts.get("items") or []):
+    rid = a.get("ride_id") or a.get("id") or a.get("activity_id")
+    row = {"date": a.get("date") or a.get("start_time"),
+           "name": a.get("title") or a.get("name"),
+           "km": a.get("distance_km") or a.get("distance")}
+    try:
+        s = svc.get_activity_summary(rid)
+        if isinstance(s, dict):
+            for src, dst in [("duration_s", "seconds"), ("moving_time_s", "seconds"),
+                             ("avg_power_w", "avg_w"), ("normalized_power_w", "np_w"),
+                             ("avg_hr_bpm", "hr"), ("elevation_gain_m", "dplus"),
+                             ("calories", "kcal"), ("training_load", "load")]:
+                v = s.get(src)
+                if v is not None and dst not in row:
+                    row[dst] = v
+    except Exception:
+        pass
+    rows.append(row)
+print(json.dumps({"activities": rows}))
+'''
+
+
+def collect_igpsport():
+    # Large marge : on filtre par date ensuite, le connecteur ne sait pas le faire.
+    snippet = IGP_SNIPPET.replace("__LIMIT__", str(max(20, DAYS * 2)))
+    res = run_python(IGP_PY, snippet)
+    if "error" in res:
+        return [], res
+    acts = []
+    for a in res.get("activities", []):
+        acts.append(normalize(
+            source="igpsport",
+            date=a.get("date"),
+            sport="velo",
+            name=a.get("name"),
+            seconds=a.get("seconds"),
+            km=a.get("km"),
+            dplus=a.get("dplus"),
+            hr=a.get("hr"),
+            kcal=a.get("kcal"),
+            load=a.get("load"),
+            avg_w=a.get("avg_w"),
+            np_w=a.get("np_w"),
+        ))
+    return acts, None
+
+
+# --- Normalisation et agregats ----------------------------------------------
+def parse_date(value):
+    """COROS renvoie 20260908 ou 2026-09-08, iGPSport un datetime ISO."""
+    if value is None:
+        return None
+    s = str(value).strip().replace("/", "-")
+    for length, fmt in ((8, "%Y%m%d"), (10, "%Y-%m-%d")):
+        try:
+            return datetime.datetime.strptime(s[:length], fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def normalize(source, date, sport, name, seconds, km, dplus, hr, kcal, load,
+              avg_w=None, np_w=None):
+    d = parse_date(date)
+    minutes = round(seconds / 60.0, 1) if isinstance(seconds, (int, float)) else None
+    act = {
+        "date": d.isoformat() if d else None,
+        "sport": sport,
+        "nom": name,
+        "minutes": minutes,
+        "km": round(km, 1) if isinstance(km, (int, float)) else None,
+        "dplus_m": round(dplus) if isinstance(dplus, (int, float)) else None,
+        "fc_moy": round(hr) if isinstance(hr, (int, float)) else None,
+        "kcal": round(kcal) if isinstance(kcal, (int, float)) else None,
+        "charge": round(load) if isinstance(load, (int, float)) else None,
+        "source": source,
+    }
+    if avg_w is not None:
+        act["watts_moy"] = round(avg_w)
+    if np_w is not None:
+        act["np_w"] = round(np_w)
+    # Faute de charge fournie, une estimation grossiere but coherente entre
+    # sports : duree ponderee par le denivele. Explicitement marquee estimee.
+    if act["charge"] is None and minutes:
+        est = minutes + (act["dplus_m"] or 0) / 100.0 * 3
+        act["charge"] = round(est)
+        act["charge_estimee"] = True
+    return act
+
+
+def aggregate(acts, days):
+    floor = TODAY - datetime.timedelta(days=days)
+    window = [a for a in acts if a["date"] and
+              datetime.date.fromisoformat(a["date"]) > floor]
+    by_sport = {}
+    for a in window:
+        s = by_sport.setdefault(a["sport"], {"seances": 0, "minutes": 0,
+                                             "km": 0, "dplus_m": 0, "charge": 0})
+        s["seances"] += 1
+        for k in ("minutes", "km", "dplus_m", "charge"):
+            if a.get(k):
+                s[k] += a[k]
+    for s in by_sport.values():
+        s["minutes"] = round(s["minutes"])
+        s["km"] = round(s["km"], 1)
+    return by_sport
+
+
+def main():
+    coros_acts, coros_err = collect_coros()
+    igp_acts, igp_err = collect_igpsport()
+
+    acts = [a for a in coros_acts + igp_acts
+            if a["date"] and datetime.date.fromisoformat(a["date"]) >= SINCE]
+    acts.sort(key=lambda a: a["date"], reverse=True)
+
+    out = {
+        "aujourdhui": TODAY.isoformat(),
+        "fenetre_jours": DAYS,
+        "activites": acts,
+        "agregats_7j": aggregate(acts, 7),
+        "agregats_28j": aggregate(acts, 28),
+        "sources_en_echec": {k: v for k, v in
+                             [("coros", coros_err), ("igpsport", igp_err)] if v},
+    }
+    print(json.dumps(out, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    main()

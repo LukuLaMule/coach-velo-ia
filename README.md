@@ -57,6 +57,7 @@ Le principe : **Claude n'intervient que là où il apporte quelque chose** (anal
 |---|---|
 | [`server/monitoring/coach-velo.prompt.md`](server/monitoring/coach-velo.prompt.md) | Le cerveau : les règles de décision du verdict matinal |
 | [`server/monitoring/coach-velo-collect.sh`](server/monitoring/coach-velo-collect.sh) | Collecte les métriques COROS de la nuit (JSON) |
+| [`server/monitoring/coach-velo-activities.py`](server/monitoring/coach-velo-activities.py) | Collecte **chaque activité, tous sports** (COROS + iGPSport) pour que le coach tienne compte de la course, du trail et de la natation |
 | [`server/monitoring/coach-velo-ics.py`](server/monitoring/coach-velo-ics.py) | Génère le calendrier .ics abonné (verdicts inclus) |
 | [`server/monitoring/coach-velo-dashboard.py`](server/monitoring/coach-velo-dashboard.py) | Dashboard privé (graphique forme/fatigue façon TrainingPeaks, en français humain) |
 | [`server/monitoring/coach-velo-pub.py`](server/monitoring/coach-velo-pub.py) | Page publique « vitrine » pour les réseaux |
