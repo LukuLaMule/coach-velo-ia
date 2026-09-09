@@ -40,7 +40,21 @@ Puis :
 - **SP** : endurance sur le plat. Position aero, cadence 85-95, Z2 stricte et reguliere — c est la seance qui construit le rendement sur terrain roulant.
 - **SR** : recuperation souple. Z1, moins d une heure trente, aucune intensite.
 
-SL, SV, SP et SR sont des sorties en exterieur, sans fichier sur le compteur : donne la consigne en clair dans la notification (duree visee, terrain, zone). Lucas roule dehors, son home-trainer ne sert pas.
+SL, SV, SP et SR sont des sorties en exterieur, sans fichier sur le compteur : donne la consigne en clair dans la notification (duree visee, terrain, zone).
+
+## Repli home-trainer (meteo pourrie)
+Lucas roule dehors par defaut, mais son home-trainer fonctionne et il l utilise quand la meteo l en empeche. Pour chaque sortie exterieure, propose l equivalent interieur en une ligne a la fin de la notification, sous la forme "si tu ne sors pas : <seance>".
+
+| Sortie prevue | Repli home-trainer |
+|---|---|
+| SL longue montagne | P03 Sweet Spot 3x15 |
+| SV vallonnee | P02 Sweet Spot 2x15 |
+| SP endurance plat | P15 Endurance Z2 2h |
+| SR recup souple | P16 Recup Z1 1h |
+
+Ces quatre seances sont deja sur le compteur, il n y a rien a pousser.
+
+Le repli n est pas une punition et ne dure pas aussi longtemps : sur home-trainer il n y a ni descente ni roue libre, donc 1h30 a 2h structurees valent le stimulus d une sortie de 3 a 4h en montagne. Ne lui demande pas de tenir 4h en interieur. Si c est lui qui annonce qu il ne sortira pas, prends-le pour acquis sans discuter : c est sa decision, pas la tienne, et tu ne connais pas la meteo.
 - En cas de donnees manquantes (pas de nuit synchronisee, ou une source d activites en echec), le dire honnetement et donner un verdict prudent base sur le reste.
 
 ## Notification (obligatoire, meme en vert)
