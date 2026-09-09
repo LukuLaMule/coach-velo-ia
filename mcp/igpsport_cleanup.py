@@ -7,8 +7,10 @@ les anciennes avant de repousser, donc la suppression ne fait rien et chaque
 push empile 17 doublons.
 
 Ce script essaie plusieurs facons de lister les seances. S'il y arrive, il
-regroupe par titre et ne garde que la plus recente de chaque groupe (id le
-plus eleve), en supprimant les autres. S'il n'y arrive pas, il affiche de quoi
+regroupe par titre et ne garde que la plus recente de chaque groupe, d'apres
+son horodatage de creation, en supprimant les autres. Les doublons sont des
+copies identiques (memes cibles, memes descriptions) : seule leur date les
+distingue. S'il n'y arrive pas, il affiche de quoi
 comprendre pourquoi plutot que de faire semblant d'avoir nettoye.
 
 PAR DEFAUT IL NE SUPPRIME RIEN : il montre ce qu'il ferait. Ajouter --apply
@@ -19,6 +21,7 @@ Usage :
     ~/mcp/igpsport-mcp/.venv/bin/python mcp/igpsport_cleanup.py           # apercu
     ~/mcp/igpsport-mcp/.venv/bin/python mcp/igpsport_cleanup.py --apply   # nettoyage
 """
+import datetime
 import inspect
 import re
 import sys
@@ -145,6 +148,23 @@ def title(w):
     return (w.get("title") or w.get("name") or "").strip()
 
 
+def cree_le(w):
+    """Horodatage de creation, en secondes. C'est le seul critere fiable :
+    les doublons sont des copies identiques, descriptions comprises."""
+    for k in ("createTimestamp", "createTime", "created_at", "createdAt"):
+        v = w.get(k)
+        if isinstance(v, (int, float)) and v > 0:
+            return v / 1000 if v > 1e11 else v
+    return None
+
+
+def date_lisible(w):
+    ts = cree_le(w)
+    if ts is None:
+        return "date inconnue"
+    return datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+
+
 svc = IGPSportService(load_config())
 
 print("=== Recherche d'une methode de listing qui fonctionne ===")
@@ -225,20 +245,21 @@ if not doublons:
 print(f"{len(doublons)} titre(s) en double.\n")
 a_supprimer = []
 for t in sorted(doublons):
-    ws = sorted(doublons[t], key=lambda w: (wid(w) or 0), reverse=True)
+    ws = sorted(doublons[t], key=lambda w: (cree_le(w) or 0, wid(w) or 0), reverse=True)
     garde, jette = ws[0], ws[1:]
     print(f"  {t}")
-    print(f"    GARDE   id={wid(garde)}  {str(garde.get('description') or '')[:80]}")
+    print(f"    GARDE    id={wid(garde)}  creee le {date_lisible(garde)}")
     for w in jette:
-        print(f"    SUPPRIME id={wid(w)}  {str(w.get('description') or '')[:80]}")
+        print(f"    SUPPRIME id={wid(w)}  creee le {date_lisible(w)}")
         a_supprimer.append((t, wid(w)))
 
 print(f"\n{len(a_supprimer)} seance(s) a supprimer.")
 
 if not APPLY:
     print("\nApercu uniquement — rien n'a ete supprime.")
-    print("Verifie que les lignes GARDE sont bien celles aux watts les plus eleves,")
-    print("puis relance avec --apply.")
+    print("Les doublons sont des copies identiques : on conserve simplement la plus")
+    print("recente. Verifie que les lignes GARDE portent bien la date du dernier")
+    print("push, puis relance avec --apply.")
     sys.exit(0)
 
 ok = ko = 0
