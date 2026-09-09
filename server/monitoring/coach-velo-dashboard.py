@@ -631,25 +631,27 @@ function stackChart(el, items, colors, opts={}){
 
 const dts = dd.map(r=>r.d);
 const tsb = dd.map(r=>(r.cti!=null&&r.ati!=null)?+(r.cti-r.ati).toFixed(1):null);
-safe("c-pmc", "Condition, fatigue et forme", ()=>lineChart("c-pmc", dts, [
+safe("c-pmc", "Condition, fatigue et forme", ()=>{lineChart("c-pmc", dts, [
   {v: tsb, c: S[2], n: "Forme"},
   {v: dd.map(r=>r.ati), c: S[1], n: "Fatigue"},
   {v: dd.map(r=>r.cti), c: S[0], n: "Condition"}],
   {w: 940, h: 220, zero: 0, include: [10, -35],
-   bands: [{lo: 5, hi: 999, c: "var(--good)"}, {lo: -999, hi: -30, c: "var(--crit)"}]}););
-safe("c-ratio", "Ratio de charge", ()=>/* Le ratio vit entre 0 et 2 : la marge de +/- 2 des autres courbes ecrasait
+   bands: [{lo: 5, hi: 999, c: "var(--good)"}, {lo: -999, hi: -30, c: "var(--crit)"}]});});
+/* Le ratio vit entre 0 et 2 : la marge de +/- 2 des autres courbes ecrasait
    la zone saine 0,8-1,3 sur 7 % de la hauteur. Echelle posee a la main. */
-const RMAX = Math.max(1.8, Math.ceil((Math.max(...dd.map(r=>r.ratio).filter(v=>v!=null), 1.3)+0.2)*10)/10);
-lineChart("c-ratio", dts, [{v:dd.map(r=>r.ratio), c:S[0], n:"ratio"}], {
-  lo:0, hi:RMAX, ticks:[0, 0.8, 1.3, RMAX],
-  bands:[{lo:0.8, hi:1.3, c:"var(--good)"}], fmt:v=>(+v).toFixed(1)}););
-safe("c-hrv", "HRV nocturne", ()=>lineChart("c-hrv", dts, [
+safe("c-ratio", "Ratio de charge", ()=>{
+  const RMAX = Math.max(1.8, Math.ceil((Math.max(...dd.map(r=>r.ratio).filter(v=>v!=null), 1.3)+0.2)*10)/10);
+  lineChart("c-ratio", dts, [{v:dd.map(r=>r.ratio), c:S[0], n:"ratio"}], {
+    lo:0, hi:RMAX, ticks:[0, 0.8, 1.3, RMAX],
+    bands:[{lo:0.8, hi:1.3, c:"var(--good)"}], fmt:v=>(+v).toFixed(1)});
+});
+safe("c-hrv", "HRV nocturne", ()=>{lineChart("c-hrv", dts, [
   {v: dd.map(r=>r.base), c:"var(--muted)", d:"4 3", n:"norme"},
-  {v: dd.map(r=>r.hrv), c:S[0], n:"HRV"}]););
-safe("c-rhr", "FC de repos", ()=>lineChart("c-rhr", dts, [{v: dd.map(r=>r.rhr), c:S[0], n:"FC"}]););
-safe("c-vo2", "VO2max", ()=>lineChart("c-vo2", dts, [{v: dd.map(r=>r.vo2), c:S[0], n:"VO2max"}], {every:14}););
-safe("c-stam", "Endurance de base", ()=>lineChart("c-stam", dts, [{v: dd.map(r=>r.stam), c:S[0], n:"endurance"}], {every:14, fmt:v=>Math.round(v)}););
-safe("c-week", "Charge par semaine", ()=>barChart("c-week", D.weeks.map(r=>({d:r.w, lbl:r.w, v:r.load, tip:r.w+" · charge "+r.load})), {lab:1}););
+  {v: dd.map(r=>r.hrv), c:S[0], n:"HRV"}]);});
+safe("c-rhr", "FC de repos", ()=>{lineChart("c-rhr", dts, [{v: dd.map(r=>r.rhr), c:S[0], n:"FC"}]);});
+safe("c-vo2", "VO2max", ()=>{lineChart("c-vo2", dts, [{v: dd.map(r=>r.vo2), c:S[0], n:"VO2max"}], {every:14});});
+safe("c-stam", "Endurance de base", ()=>{lineChart("c-stam", dts, [{v: dd.map(r=>r.stam), c:S[0], n:"endurance"}], {every:14, fmt:v=>Math.round(v)});});
+safe("c-week", "Charge par semaine", ()=>{barChart("c-week", D.weeks.map(r=>({d:r.w, lbl:r.w, v:r.load, tip:r.w+" · charge "+r.load})), {lab:1});});
 
 const S21 = D.sleep.slice(-21);
 const SMAX = Math.max(600, Math.ceil(Math.max(...S21.map(r=>r.deep+r.light+r.rem+r.awake), 0)/60)*60);
@@ -660,7 +662,7 @@ stackChart("c-sleep", S21.map(r=>({lbl:fdm(r.d),
   SL, {max:SMAX, ticks:[0,120,240,360,480,600,720], fmt:v=>Math.round(v/60)+"h", ref:450, lab:3});
 });
 
-safe("c-nuit", "Coeur pendant la nuit", ()=>bandChart("c-nuit", S21.map(r=>r.d), S21.map(r=>r.hrmin), S21.map(r=>r.hrmax), S21.map(r=>r.hr)););
+safe("c-nuit", "Coeur pendant la nuit", ()=>{bandChart("c-nuit", S21.map(r=>r.d), S21.map(r=>r.hrmin), S21.map(r=>r.hrmax), S21.map(r=>r.hr));});
 
 const FAM = D.familles;
 document.getElementById("lg-vol").innerHTML = FAM.map((f,i)=>
