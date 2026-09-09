@@ -22,12 +22,26 @@ Usage :
 import inspect
 import re
 import sys
+import textwrap
 
 from igpsport_mcp.tools._service import IGPSportService
 from igpsport_mcp.config import load_config
 
 APPLY = "--apply" in sys.argv
 TITLE_RE = re.compile(r"^P\d{2}\b")
+
+
+SECRET_RE = re.compile(r"token|cookie|auth|password|passwd|secret|key|session|bearer|cred",
+                       re.IGNORECASE)
+
+
+def redact(name, value):
+    """Masque toute valeur dont le nom evoque un secret : la sortie de ce
+    script est destinee a etre collee dans une conversation."""
+    if SECRET_RE.search(name):
+        text = str(value)
+        return f"<masque, {len(text)} caracteres>"
+    return repr(value)
 
 
 def extract(res):
@@ -48,11 +62,9 @@ def extract(res):
 
 def find_listing():
     """Essaie les signatures et methodes plausibles, renvoie (nom, seances)."""
-    attempts = [("list_workouts()", "list_workouts", {}),
-                ("list_workouts(limit=100)", "list_workouts", {"limit": 100}),
-                ("list_workouts(page=1, size=100)", "list_workouts",
-                 {"page": 1, "size": 100}),
-                ("list_workouts(page_size=100)", "list_workouts", {"page_size": 100})]
+    # list_workouts() ne prend aucun argument (verifie sur le serveur) : inutile
+    # de tenter limit/page/size, ils levent tous un TypeError.
+    attempts = [("list_workouts()", "list_workouts", {})]
     # d'autres methodes du service peuvent lister les seances
     for name in dir(svc):
         if name.startswith("_") or name in ("list_workouts",):
@@ -102,13 +114,33 @@ if not workouts:
             except (TypeError, ValueError):
                 sig = "(?)"
             print(f"    svc.{name}{sig}")
-    print("\n  Attributs non appelables (client HTTP, config) :")
-    for name in sorted(dir(svc)):
-        if name.startswith("_"):
-            continue
-        obj = getattr(svc, name, None)
-        if obj is not None and not callable(obj):
-            print(f"    svc.{name} : {type(obj).__name__}")
+    print("\n  Code de svc.list_workouts (quel endpoint est appele) :")
+    try:
+        print(textwrap.indent(inspect.getsource(svc.list_workouts).strip(), "    "))
+    except Exception as exc:
+        print(f"    indisponible : {exc}")
+
+    client = getattr(svc, "client", None)
+    if client is not None:
+        print(f"\n  Methodes de {type(client).__name__} :")
+        for name in sorted(dir(client)):
+            fn = getattr(client, name, None)
+            if name.startswith("_") or not callable(fn):
+                continue
+            try:
+                sig = str(inspect.signature(fn))
+            except (TypeError, ValueError):
+                sig = "(?)"
+            print(f"    client.{name}{sig}")
+
+        print("\n  Reglages du client (secrets masques) :")
+        for name in sorted(dir(client)):
+            if name.startswith("_"):
+                continue
+            val = getattr(client, name, None)
+            if not isinstance(val, (str, int, bool)):
+                continue
+            print(f"    client.{name} = {redact(name, val)}")
     sys.exit(1)
 
 print(f"\n=== {len(workouts)} seance(s) listee(s) via {label} ===")
