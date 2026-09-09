@@ -133,6 +133,26 @@ if not workouts:
                 sig = "(?)"
             print(f"    client.{name}{sig}")
 
+        print("\n  Code de client.list_workouts (l'appel HTTP reel) :")
+        try:
+            print(textwrap.indent(inspect.getsource(client.list_workouts).strip(), "    "))
+        except Exception as exc:
+            print(f"    indisponible : {exc}")
+
+        # la methode de requete sous-jacente porte l'URL de base et le routage
+        # par region : c'est la que se joue le comportement du serveur intl.
+        for helper in ("_request", "_get", "_post", "_call", "request"):
+            fn = getattr(client, helper, None)
+            if not callable(fn):
+                continue
+            try:
+                src = inspect.getsource(fn).strip()
+            except Exception:
+                continue
+            print(f"\n  Code de client.{helper} (tronque) :")
+            print(textwrap.indent(src[:1200], "    "))
+            break
+
         print("\n  Reglages du client (secrets masques) :")
         for name in sorted(dir(client)):
             if name.startswith("_"):

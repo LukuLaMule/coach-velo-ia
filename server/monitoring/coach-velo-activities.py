@@ -27,7 +27,9 @@ SECRETS = os.path.join(MCP_HOME, "secrets")
 COROS_PY = os.path.join(MCP_HOME, "coros-mcp", ".venv", "bin", "python")
 IGP_PY = os.path.join(MCP_HOME, "igpsport-mcp", ".venv", "bin", "python")
 
-DAYS = int(sys.argv[1]) if len(sys.argv) > 1 else 14
+DEBUG = "--debug" in sys.argv
+ARGS = [a for a in sys.argv[1:] if not a.startswith("-")]
+DAYS = int(ARGS[0]) if ARGS else 14
 TODAY = datetime.date.today()
 SINCE = TODAY - datetime.timedelta(days=DAYS)
 
@@ -149,25 +151,30 @@ from igpsport_mcp.config import load_config
 svc = IGPSportService(load_config())
 acts = svc.list_activities(limit=__LIMIT__)
 rows = []
+echantillon = None
 for a in (acts.get("activities") or acts.get("items") or []):
     rid = a.get("ride_id") or a.get("id") or a.get("activity_id")
     row = {"date": a.get("date") or a.get("start_time"),
            "name": a.get("title") or a.get("name"),
            "km": a.get("distance_km") or a.get("distance")}
+    resume = None
     try:
-        s = svc.get_activity_summary(rid)
-        if isinstance(s, dict):
+        resume = svc.get_activity_summary(rid)
+        if isinstance(resume, dict):
             for src, dst in [("duration_s", "seconds"), ("moving_time_s", "seconds"),
                              ("avg_power_w", "avg_w"), ("normalized_power_w", "np_w"),
                              ("avg_hr_bpm", "hr"), ("elevation_gain_m", "dplus"),
                              ("calories", "kcal"), ("training_load", "load")]:
-                v = s.get(src)
+                v = resume.get(src)
                 if v is not None and dst not in row:
                     row[dst] = v
-    except Exception:
-        pass
+    except Exception as exc:
+        resume = {"_erreur": f"{type(exc).__name__}: {str(exc)[:120]}"}
+    if echantillon is None:
+        echantillon = {"activite_brute": a, "resume_brut": resume}
     rows.append(row)
-print(json.dumps({"activities": rows}))
+print(json.dumps({"activities": rows,
+                  "echantillon": echantillon if __DEBUG__ else None}, default=str))
 '''
 
 
@@ -175,10 +182,16 @@ def collect_igpsport():
     # Large marge : on filtre par date ensuite, le connecteur ne sait pas le faire.
     snippet = (IGP_SNIPPET
                .replace("__LIMIT__", str(max(20, DAYS * 2)))
+               .replace("__DEBUG__", "True" if DEBUG else "False")
                .replace("__IGP_ENV__", os.path.join(SECRETS, "igpsport.env")))
     res = run_python(IGP_PY, snippet)
     if "error" in res:
         return [], res
+    if DEBUG and res.get("echantillon"):
+        print("--- echantillon brut iGPSport (cles reellement disponibles) ---",
+              file=sys.stderr)
+        print(json.dumps(res["echantillon"], indent=2, ensure_ascii=False)[:2000],
+              file=sys.stderr)
     acts = []
     for a in res.get("activities", []):
         acts.append(normalize(
