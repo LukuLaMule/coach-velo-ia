@@ -9,7 +9,10 @@ OUT = os.environ.get("VELO_OUT", "/home/opc/Docker/sites/velo/public")
 JOURS = 56          # profondeur des series quotidiennes
 JOURS_ACT = 120     # profondeur des activites, pour le volume par sport
 
-ftp = 275
+# Repli si IGPSPORT_FTP manque dans les secrets : il a longtemps valu 275, la
+# valeur d'avant le test du 10/08/2026, et la page affichait donc un FTP perime
+# sans rien signaler. Source de verite : coach-velo.prompt.md.
+ftp = 290
 for line in open("/home/opc/mcp/secrets/igpsport.env"):
     m = re.match(r"IGPSPORT_FTP=(\d+)", line)
     if m:
