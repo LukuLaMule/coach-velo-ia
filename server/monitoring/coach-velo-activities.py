@@ -73,9 +73,19 @@ async def main():
         signature = "(?)"
     auth = await api.try_auto_login()
     d0, d1 = "__SINCE__", "__TODAY__"
-    res = fn(auth, d0, d1)
+    # size vaut 30 par defaut, insuffisant sur une fenetre large ;
+    # mode_list=None laisse passer tous les sports.
+    try:
+        res = fn(auth, d0, d1, page=1, size=200)
+    except TypeError:
+        res = fn(auth, d0, d1)
     if inspect.isawaitable(res):
         res = await res
+    # fetch_activities renvoie (activites, total) : c'est la liste qui nous
+    # interesse, pas le tuple. Iterer dessus donnait 2 "enregistrements".
+    total = None
+    if isinstance(res, tuple):
+        res, total = (res[0], res[1] if len(res) > 1 else None)
     def champ(rec, *noms):
         """Les enregistrements peuvent etre des objets ou des dictionnaires."""
         for n in noms:
@@ -109,8 +119,8 @@ async def main():
                            and not callable(getattr(r0, a, None))}
         echantillon["__type__"] = type(r0).__name__
     print(json.dumps({"activities": out, "fn": fn_name, "signature": signature,
-                      "recus": len(res or []), "echantillon": echantillon},
-                     default=str))
+                      "recus": len(res or []), "total_annonce": total,
+                      "echantillon": echantillon}, default=str))
 
 asyncio.run(main())
 '''
@@ -142,8 +152,9 @@ def collect_coros():
     if "error" in res:
         return [], res
     if DEBUG:
-        print(f"--- COROS : {res.get('fn')}{res.get('signature')}, "
-              f"{res.get('recus')} enregistrement(s) recu(s) ---", file=sys.stderr)
+        print(f"--- COROS : {res.get('fn')}, {res.get('recus')} activite(s) "
+              f"recue(s) sur {res.get('total_annonce')} annoncee(s) ---",
+              file=sys.stderr)
         if res.get("echantillon"):
             print("--- attributs reels du premier enregistrement COROS ---",
                   file=sys.stderr)
@@ -270,6 +281,10 @@ def parse_date(value):
 def normalize(source, date, sport, name, seconds, km, dplus, hr, kcal, load,
               avg_w=None, np_w=None, if_=None, kj=None):
     d = parse_date(date)
+    # certaines sources donnent la distance en metres : 400 km sur une seule
+    # activite n'existe pas dans ce carnet, c'est donc des metres.
+    if isinstance(km, (int, float)) and km > 400:
+        km = km / 1000.0
     minutes = round(seconds / 60.0, 1) if isinstance(seconds, (int, float)) else None
     act = {
         "date": d.isoformat() if d else None,
