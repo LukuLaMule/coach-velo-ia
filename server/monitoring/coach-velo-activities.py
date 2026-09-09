@@ -10,7 +10,7 @@ sport sur 7 et 28 jours. Destine a etre lu par le coach du matin, qui doit
 pouvoir juger chaque seance individuellement et pas seulement une charge
 globale.
 
-Usage : coach-velo-activities.py [jours]   (defaut 14)
+Usage : coach-velo-activities.py [jours] [--debug]   (defaut 14)
 """
 import json
 import os
@@ -34,6 +34,8 @@ TODAY = datetime.date.today()
 SINCE = TODAY - datetime.timedelta(days=DAYS)
 
 # COROS renvoie des codes numeriques ; on les ramene a des familles lisibles.
+# Codes observes reellement : 100 Running, 103 Track Running, 200 Road Bike,
+# 300 (natation piscine, remonte sans libelle : "Sport 300").
 COROS_FAMILIES = {
     "course": [100, 101, 103],
     "trail": [102, 105],
@@ -46,18 +48,77 @@ COROS_FAMILIES = {
 }
 SPORT_BY_CODE = {c: fam for fam, codes in COROS_FAMILIES.items() for c in codes}
 
+# Repli quand le code numerique est inconnu : le libelle textuel du sport.
+SPORT_BY_LABEL = [
+    ("swim", "natation"), ("pool", "natation"),
+    ("trail", "trail"),
+    ("run", "course"),
+    ("bike", "velo"), ("cycl", "velo"), ("ride", "velo"),
+    ("hik", "rando"), ("walk", "rando"),
+    ("row", "rameur"), ("ski", "ski"),
+    ("strength", "renfo"), ("gym", "renfo"),
+]
+
 
 # --- Source 1 : COROS -------------------------------------------------------
-# Le nom exact de la fonction d'activites varie selon la version du connecteur
-# (fetch_daily_records / fetch_sleep sont stables, la liste d'activites moins).
-# On resout parmi les noms plausibles et, si rien ne matche, on le dit
-# clairement au lieu de renvoyer une liste vide silencieuse.
+# Champs reellement renvoyes par fetch_activities (modele ActivitySummary,
+# verifie sur le serveur le 09/09/2026) :
+#   activity_id, name, sport_type (int), sport_name, start_time / end_time
+#   (epoch en secondes, sous forme de chaine), duration_seconds,
+#   distance_meters, avg_hr, max_hr, calories, training_load,
+#   avg_power, normalized_power, elevation_gain, elevation_loss
+# Deux pieges qui faisaient tout jeter silencieusement :
+#   - la fonction renvoie un TUPLE (liste, total), pas une liste ;
+#   - il n'y a pas de champ "date" : start_time est un epoch.
 COROS_SNIPPET = r'''
 import asyncio, json, datetime, inspect
+from zoneinfo import ZoneInfo
 import coros_mcp.coros_api as api
+
+# Le serveur tourne en UTC, l'athlete s'entraine en France : sans ce fuseau,
+# une seance de fin de soiree serait datee du lendemain.
+TZ = ZoneInfo("Europe/Paris")
 
 CANDIDATES = ["fetch_activities", "fetch_sport_records", "query_sport_records",
               "fetch_workouts", "fetch_activity_list", "list_activities"]
+
+
+def champ(rec, *noms):
+    """Les enregistrements peuvent etre des objets ou des dictionnaires."""
+    for n in noms:
+        v = rec.get(n) if isinstance(rec, dict) else getattr(rec, n, None)
+        if v is not None:
+            return v
+    return None
+
+
+def deballe(res):
+    """fetch_activities renvoie (liste, total). D'autres versions pourraient
+    renvoyer la liste nue : on accepte les deux plutot que de tout jeter."""
+    if isinstance(res, tuple) and len(res) == 2 and isinstance(res[0], list):
+        return res[0], res[1]
+    if isinstance(res, list):
+        return res, None
+    if isinstance(res, dict):
+        for k in ("activities", "items", "list", "records", "data"):
+            if isinstance(res.get(k), list):
+                return res[k], res.get("total")
+    return [], None
+
+
+def jour(rec):
+    """start_time est un epoch en secondes rendu sous forme de chaine."""
+    v = champ(rec, "start_time", "startTime", "date", "day", "end_time")
+    if v is None:
+        return None
+    s = str(v).strip()
+    if s.isdigit() and len(s) >= 10:          # epoch (s ou ms)
+        ts = int(s)
+        if ts > 1e11:
+            ts /= 1000
+        return datetime.datetime.fromtimestamp(ts, TZ).date().isoformat()
+    return s          # deja une date lisible, normalisee cote appelant
+
 
 async def main():
     fn_name = next((n for n in CANDIDATES if hasattr(api, n)), None)
@@ -68,58 +129,79 @@ async def main():
         return
     fn = getattr(api, fn_name)
     try:
+        params = inspect.signature(fn).parameters
         signature = str(inspect.signature(fn))
     except (TypeError, ValueError):
-        signature = "(?)"
+        params, signature = {}, "(?)"
+
     auth = await api.try_auto_login()
+    if auth is None:
+        print(json.dumps({"error": "coros_auth_absente",
+                          "detail": "try_auto_login() n'a rien renvoye "
+                                    "(secrets/coros.env charge ?)"}))
+        return
+
     d0, d1 = "__SINCE__", "__TODAY__"
-    # size vaut 30 par defaut, insuffisant sur une fenetre large ;
-    # mode_list=None laisse passer tous les sports.
-    try:
-        res = fn(auth, d0, d1, page=1, size=200)
-    except TypeError:
-        res = fn(auth, d0, d1)
-    if inspect.isawaitable(res):
-        res = await res
-    # fetch_activities renvoie (activites, total) : c'est la liste qui nous
-    # interesse, pas le tuple. Iterer dessus donnait 2 "enregistrements".
-    total = None
-    if isinstance(res, tuple):
-        res, total = (res[0], res[1] if len(res) > 1 else None)
-    def champ(rec, *noms):
-        """Les enregistrements peuvent etre des objets ou des dictionnaires."""
-        for n in noms:
-            v = rec.get(n) if isinstance(rec, dict) else getattr(rec, n, None)
-            if v is not None:
-                return v
-        return None
+    # La taille de page par defaut est 30 : sur une fenetre longue on
+    # tronquerait sans le voir. On pagine jusqu'au total annonce.
+    records, total, pages = [], None, 0
+    while pages < 20:
+        pages += 1
+        kw = {}
+        if "size" in params:
+            kw["size"] = 100
+        if "page" in params:
+            kw["page"] = pages
+        res = fn(auth, d0, d1, **kw)
+        if inspect.isawaitable(res):
+            res = await res
+        lot, tot = deballe(res)
+        if tot is not None:
+            total = tot
+        records.extend(lot)
+        if not lot or "page" not in params:
+            break
+        if total is not None and len(records) >= total:
+            break
 
     out = []
-    for r in (res or []):
-        g = lambda *ks: champ(r, *ks)
+    for r in records:
+        km = champ(r, "distance_km")
+        if km is None:
+            m = champ(r, "distance_meters", "distance")
+            km = m / 1000.0 if isinstance(m, (int, float)) else None
+        # COROS compte en calories, pas en kilocalories : 743363 pour une
+        # heure de course. On ramene, sans ecraser une valeur deja en kcal.
+        kcal = champ(r, "calories", "total_calories")
+        if isinstance(kcal, (int, float)) and kcal > 10000:
+            kcal = kcal / 1000.0
         out.append({
-            "date": g("date", "start_date", "day"),
-            "code": g("sport_type", "sportType", "type"),
-            "name": g("name", "label", "location"),
-            "seconds": g("total_time", "duration", "workout_time", "moving_time"),
-            "km": g("distance_km", "distance"),
-            "dplus": g("elevation_gain", "total_ascent", "ascent"),
-            "hr": g("avg_hr", "average_hr", "avg_heart_rate"),
-            "kcal": g("calories", "total_calories"),
-            "load": g("training_load", "load", "trainingLoad"),
+            "date": jour(r),
+            "code": champ(r, "sport_type", "sportType", "type"),
+            "sport_label": champ(r, "sport_name", "sportName"),
+            "name": champ(r, "name", "label", "location"),
+            "seconds": champ(r, "duration_seconds", "total_time", "duration",
+                             "workout_time", "moving_time"),
+            "km": km,
+            "dplus": champ(r, "elevation_gain", "total_ascent", "ascent"),
+            "hr": champ(r, "avg_hr", "average_hr", "avg_heart_rate"),
+            "kcal": kcal,
+            "load": champ(r, "training_load", "load", "trainingLoad"),
         })
+
     echantillon = None
-    if res:
-        r0 = res[0]
+    if records:
+        r0 = records[0]
         if isinstance(r0, dict):
             echantillon = {k: str(v)[:70] for k, v in r0.items()}
         else:
-            echantillon = {a: str(getattr(r0, a, None))[:70] for a in dir(r0)
-                           if not a.startswith("_")
-                           and not callable(getattr(r0, a, None))}
+            champs = getattr(type(r0), "model_fields", None) or {}
+            noms = list(champs) or [a for a in dir(r0) if not a.startswith("_")
+                                    and not callable(getattr(r0, a, None))]
+            echantillon = {a: str(getattr(r0, a, None))[:70] for a in noms}
         echantillon["__type__"] = type(r0).__name__
     print(json.dumps({"activities": out, "fn": fn_name, "signature": signature,
-                      "recus": len(res or []), "total_annonce": total,
+                      "recus": len(records), "total_annonce": total,
                       "echantillon": echantillon}, default=str))
 
 asyncio.run(main())
@@ -144,6 +226,23 @@ def run_python(interpreter, snippet, env_file=None, timeout=120):
         return {"error": type(exc).__name__, "detail": str(exc)[:300]}
 
 
+def famille(code, label):
+    """Code numerique d'abord, libelle en repli : un sport inconnu doit
+    ressortir sous son nom plutot que d'etre noye dans "autre"."""
+    if code is not None:
+        try:
+            fam = SPORT_BY_CODE.get(int(code))
+        except (TypeError, ValueError):
+            fam = None
+        if fam:
+            return fam
+    texte = (label or "").lower()
+    for cle, fam in SPORT_BY_LABEL:
+        if cle in texte:
+            return fam
+    return "autre"
+
+
 def collect_coros():
     snippet = (COROS_SNIPPET
                .replace("__SINCE__", SINCE.strftime("%Y%m%d"))
@@ -152,9 +251,9 @@ def collect_coros():
     if "error" in res:
         return [], res
     if DEBUG:
-        print(f"--- COROS : {res.get('fn')}, {res.get('recus')} activite(s) "
-              f"recue(s) sur {res.get('total_annonce')} annoncee(s) ---",
-              file=sys.stderr)
+        print(f"--- COROS : {res.get('fn')}{res.get('signature')}, "
+              f"{res.get('recus')} enregistrement(s) recu(s) "
+              f"(total annonce {res.get('total_annonce')}) ---", file=sys.stderr)
         if res.get("echantillon"):
             print("--- attributs reels du premier enregistrement COROS ---",
                   file=sys.stderr)
@@ -162,12 +261,11 @@ def collect_coros():
                   file=sys.stderr)
     acts = []
     for a in res.get("activities", []):
-        code = a.get("code")
         acts.append(normalize(
             source="coros",
             date=a.get("date"),
-            sport=SPORT_BY_CODE.get(code, "autre"),
-            name=a.get("name"),
+            sport=famille(a.get("code"), a.get("sport_label")),
+            name=a.get("name") or a.get("sport_label"),
             seconds=a.get("seconds"),
             km=a.get("km"),
             dplus=a.get("dplus"),
@@ -266,11 +364,15 @@ def collect_igpsport():
 
 # --- Normalisation et agregats ----------------------------------------------
 def parse_date(value):
-    """COROS renvoie 20260908 ou 2026-09-08, iGPSport un datetime ISO."""
+    """COROS renvoie un epoch (deja converti en ISO par le snippet, mais on
+    reste tolerant), iGPSport un datetime ISO."""
     if value is None:
         return None
     s = str(value).strip().replace("/", "-")
-    for length, fmt in ((8, "%Y%m%d"), (10, "%Y-%m-%d")):
+    if s.isdigit() and len(s) >= 10:
+        ts = int(s)
+        return datetime.datetime.fromtimestamp(ts / 1000 if ts > 1e11 else ts).date()
+    for length, fmt in ((10, "%Y-%m-%d"), (8, "%Y%m%d")):
         try:
             return datetime.datetime.strptime(s[:length], fmt).date()
         except ValueError:
@@ -281,10 +383,6 @@ def parse_date(value):
 def normalize(source, date, sport, name, seconds, km, dplus, hr, kcal, load,
               avg_w=None, np_w=None, if_=None, kj=None):
     d = parse_date(date)
-    # certaines sources donnent la distance en metres : 400 km sur une seule
-    # activite n'existe pas dans ce carnet, c'est donc des metres.
-    if isinstance(km, (int, float)) and km > 400:
-        km = km / 1000.0
     minutes = round(seconds / 60.0, 1) if isinstance(seconds, (int, float)) else None
     act = {
         "date": d.isoformat() if d else None,
@@ -306,14 +404,45 @@ def normalize(source, date, sport, name, seconds, km, dplus, hr, kcal, load,
         act["intensite"] = round(if_, 2)
     if kj is not None:
         act["kj"] = round(kj)
-    # Le TSS iGPSport est une vraie charge et sert tel quel. Pour les sports
-    # ou aucune charge n'est fournie (COROS), estimation grossiere mais
+    # Le TSS iGPSport et le training_load COROS sont de vraies charges et
+    # servent tels quels. Si aucune n'est fournie, estimation grossiere mais
     # coherente : duree ponderee par le denivele, explicitement marquee.
     if act["charge"] is None and minutes:
         est = minutes + (act["dplus_m"] or 0) / 100.0 * 3
         act["charge"] = round(est)
         act["charge_estimee"] = True
     return act
+
+
+def proche(a, b, tolerance=0.15):
+    if not isinstance(a, (int, float)) or not isinstance(b, (int, float)):
+        return False
+    if max(a, b) == 0:
+        return True
+    return abs(a - b) / max(a, b) <= tolerance
+
+
+def fusionne_velo(acts):
+    """Une meme sortie velo peut etre vue par les deux sources si la montre
+    tournait en plus du compteur : sans cela sa charge serait comptee deux
+    fois. On ne rapproche que le meme jour, avec duree ET distance voisines,
+    pour ne pas confondre deux sorties distinctes du meme jour (le 29/08 :
+    3 km de liaison a la montre et 76 km au compteur). Le compteur fait foi,
+    c'est lui qui porte la puissance."""
+    igp = [a for a in acts if a["source"] == "igpsport"]
+    garde, doublons = [], 0
+    for a in acts:
+        if a["source"] == "coros" and a["sport"] == "velo":
+            jumelle = next((b for b in igp
+                            if b["date"] == a["date"]
+                            and proche(a["minutes"], b["minutes"])
+                            and proche(a["km"], b["km"])), None)
+            if jumelle is not None:
+                jumelle["vue_aussi_par"] = "coros"
+                doublons += 1
+                continue
+        garde.append(a)
+    return garde, doublons
 
 
 def aggregate(acts, days):
@@ -338,9 +467,17 @@ def main():
     coros_acts, coros_err = collect_coros()
     igp_acts, igp_err = collect_igpsport()
 
-    acts = [a for a in coros_acts + igp_acts
+    acts, doublons = fusionne_velo(coros_acts + igp_acts)
+    sans_date = [a for a in acts if not a["date"]]
+    acts = [a for a in acts
             if a["date"] and datetime.date.fromisoformat(a["date"]) >= SINCE]
     acts.sort(key=lambda a: a["date"], reverse=True)
+
+    # Une source qui repond mais dont rien n'est exploitable ne doit pas
+    # passer pour un succes : c'est ainsi que le velo est reste invisible.
+    retenus = {"coros": 0, "igpsport": 0}
+    for a in acts:
+        retenus[a["source"]] += 1
 
     out = {
         "aujourdhui": TODAY.isoformat(),
@@ -350,8 +487,16 @@ def main():
         "agregats_28j": aggregate(acts, 28),
         "sources_en_echec": {k: v for k, v in
                              [("coros", coros_err), ("igpsport", igp_err)] if v},
-        "sources_muettes": [nom for nom, lst in
-                            [("coros", coros_acts), ("igpsport", igp_acts)] if not lst],
+        "sources_muettes": [nom for nom, brut, net in
+                            [("coros", coros_acts, retenus["coros"]),
+                             ("igpsport", igp_acts, retenus["igpsport"])]
+                            if not net],
+        "diagnostic": {
+            "recus": {"coros": len(coros_acts), "igpsport": len(igp_acts)},
+            "retenus": retenus,
+            "sans_date_ignorees": len(sans_date),
+            "doublons_velo_fusionnes": doublons,
+        },
     }
     print(json.dumps(out, ensure_ascii=False))
 
