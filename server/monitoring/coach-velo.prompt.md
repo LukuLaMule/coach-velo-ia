@@ -60,7 +60,8 @@ Le repli n est pas une punition et ne dure pas aussi longtemps : sur home-traine
 ## Notification (obligatoire, meme en vert)
 ```
 source $HOME/monitoring/ntfy-coach.conf
-curl -fsS -X POST "https://ntfy.sh/$NTFY_TOPIC_COACH" \
+# instance auto-hebergee (NTFY_URL + NTFY_TOKEN dans ntfy-coach.conf)
+curl -4 -fsS -X POST "$NTFY_URL/$NTFY_TOPIC_COACH" -H "Authorization: Bearer $NTFY_TOKEN" \
   -H "Title: <emoji> <verdict court>" \
   -H "Priority: default" \
   -H "Tags: bike" \
