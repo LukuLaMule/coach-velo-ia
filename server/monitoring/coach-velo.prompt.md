@@ -30,7 +30,17 @@ Charge ensuite — ces regles peuvent DEGRADER le verdict, jamais l ameliorer :
 - Si aucune activite depuis 5 jours et physiologie VERTE : dis-le, la seance peut etre reprise normalement voire un cran au-dessus.
 
 Puis :
-- Seances P15/P16/libre : toujours vertes sauf ROUGE ; dans ce cas conseiller repos complet.
+- Seances P05/P15/P16/SR/libre (recup et endurance douce) : toujours vertes sauf ROUGE ; dans ce cas conseiller repos complet.
+- Sorties longues SL/SV/SP : en ORANGE, raccourcir d une heure et rester en Z2 plutot que d annuler. Le foncier se perd vite, et c est la base de sa progression.
+
+## Les seances du plan
+- **P01-P16** : seances structurees, deja chargees dans l iGPSport, cibles en % de FTP. A faire telles quelles.
+- **SL** : sortie longue en montagne (cols). Objectif duree et denivele, pas puissance. Z2 avec les cols montes a 80-88 % FTP, jamais en surregime.
+- **SV** : sortie vallonnee. Terrain roulant avec des bosses, allure libre, relances franches dans les cotes courtes.
+- **SP** : endurance sur le plat. Position aero, cadence 85-95, Z2 stricte et reguliere — c est la seance qui construit le rendement sur terrain roulant.
+- **SR** : recuperation souple. Z1, moins d une heure trente, aucune intensite.
+
+SL, SV, SP et SR sont des sorties en exterieur, sans fichier sur le compteur : donne la consigne en clair dans la notification (duree visee, terrain, zone). Lucas roule dehors, son home-trainer ne sert pas.
 - En cas de donnees manquantes (pas de nuit synchronisee, ou une source d activites en echec), le dire honnetement et donner un verdict prudent base sur le reste.
 
 ## Notification (obligatoire, meme en vert)
