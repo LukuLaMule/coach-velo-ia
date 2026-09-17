@@ -183,6 +183,18 @@ for r in daily:
     wk_acc[key] = wk_acc.get(key, 0) + (r.training_load or 0)
 weeks_data = [{"w": k, "load": round(v)} for k, v in sorted(wk_acc.items())]
 
+# --- fichiers d'entrainement telechargeables (.zwo Zwift, .erg Rouvy...) ----
+# Les segments viennent du meme catalogue que le push vers le compteur, donc la
+# seance telechargee est exactement celle que le GPS affichera. Les .erg figent
+# les watts a la FTP du jour : ils sont reecrits a chaque generation de la page.
+sys.path.insert(0, MON)
+try:
+    from coach_velo_seances import ecrire
+    fichiers = ecrire(f"{OUT}/seances", ftp)
+except Exception as exc:
+    print("seances non exportees :", type(exc).__name__, exc)
+    fichiers = {}
+
 def phase(r, champ):
     return (getattr(r.phases, champ) or 0) if r.phases else 0
 
@@ -209,6 +221,7 @@ data = {
                "hr": r.avg_hr, "hrmin": r.min_hr, "hrmax": r.max_hr} for r in sleep],
     "volume": volume, "familles": ORDRE_FAM,
     "seances": seances[:12], "toutes": seances, "acts": acts, "plan": plan,
+    "fichiers": fichiers,
 }
 
 HTML = r"""<!doctype html>
@@ -423,6 +436,18 @@ tr{transition:background .2s}
 .detail dd{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
 .detail .sep{height:1px;background:var(--grid);margin:14px 0}
 .detail .hint{font-size:12px;color:var(--muted);line-height:1.5}
+
+/* ---------- telechargement des seances (.zwo / .erg) ---------- */
+.dl{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:13px}
+.dl a{display:inline-flex;align-items:center;gap:7px;text-decoration:none;font-size:12.5px;
+  font-weight:600;border-radius:999px;padding:6px 13px;transition:background .18s,transform .18s,border-color .18s}
+.dl a .ar{font-size:14px;line-height:1}
+.hero .dl a{color:#fff;background:rgba(255,255,255,.17);border:1px solid rgba(255,255,255,.34)}
+.hero .dl a:hover{background:rgba(255,255,255,.3);transform:translateY(-1px)}
+.hero .dlh{font-size:11.5px;opacity:.82;flex-basis:100%;margin-top:-2px}
+.detail .dl a{color:var(--ink-2);background:var(--raised);border:1px solid var(--border);font-size:12px;padding:5px 11px}
+.detail .dl a:hover{border-color:var(--axis);transform:translateY(-1px)}
+.detail .dlh{font-size:11px;color:var(--muted);flex-basis:100%;line-height:1.45}
 
 /* ---------- bande du cycliste ---------- */
 .rideband{position:relative;height:126px;margin:4px 0 18px;overflow:hidden;
@@ -661,6 +686,20 @@ document.getElementById("tiles").innerHTML = tiles.map(([l,v,u,s]) =>
    <span class="st"><i></i>${s[1]}</span></div>`).join("");
 });
 
+/* ---------- fichiers d'entrainement : .zwo (Zwift, Rouvy) et .erg ----------
+   Seules les seances codees P01-P17 ont des segments ; les sorties libres
+   (SL, SV, SP...) n'ont rien a importer, on n'affiche alors aucun bouton. */
+function liens(seance){
+  const f = (D.fichiers||{})[String(seance||"").split(" ")[0]];
+  if (!f) return "";
+  const n = encodeURIComponent(f.base);
+  return `<div class="dl">
+    <a href="seances/${n}.zwo" download title="Zwift, Rouvy, MyWhoosh, indieVelo"><span class="ar">&darr;</span> Zwift <b>.zwo</b></a>
+    <a href="seances/${n}.erg" download title="Rouvy, TrainerRoad, Wahoo, GoldenCheetah"><span class="ar">&darr;</span> Rouvy <b>.erg</b></a>
+    <span class="dlh">${esc(f.duree)} de seance structuree — le .zwo garde les cibles en % de FTP,
+      le .erg les fige en watts a ${D.ftp} W.</span></div>`;
+}
+
 /* ---------- hero : seance du jour + avancement ---------- */
 safe("heroNext", "Seance du jour", ()=>{
   const n = D.next;
@@ -670,6 +709,7 @@ safe("heroNext", "Seance du jour", ()=>{
   if (D.done_today) {
     h += `<div class="kick">Aujourd'hui — fait</div><div class="big">${esc(D.done_today)}</div>`;
     if (n) h += `<div class="meta">Prochaine seance : <b>${esc(n.seance)}</b> — ${longue(n.date)}.</div>`;
+    if (n) h += liens(n.seance);
   } else if (n) {
     const when = n.date===today ? "Seance du jour" : "Prochaine seance — "+longue(n.date);
     const lab = (VD[n.emoji]||[null,null])[1];
@@ -677,6 +717,7 @@ safe("heroNext", "Seance du jour", ()=>{
     h += `<div class="pills"><span class="pill"><i></i>${esc(n.phase)}</span>` +
          (lab ? `<span class="pill"><i></i>${lab}</span>` : "") + `</div>`;
     if (n.note) h += `<div class="meta">${esc(n.note)}</div>`;
+    h += liens(n.seance);
   } else {
     h += `<div class="kick">Programme</div><div class="big">Programme termine.</div>`;
   }
@@ -953,6 +994,7 @@ function detail(key){
     <div class="dn">${esc(p ? p.seance : "Sortie hors programme")}</div>
     <span class="vp" style="--vc:${col}">${etat}</span>`;
   if (p && p.note) h += `<div class="txt">${esc(p.note)}</div>`;
+  if (p) h += liens(p.seance);
   const act = faits[d] || [];
   h += `<div class="sep"></div>`;
   if (act.length){

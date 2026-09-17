@@ -149,6 +149,18 @@ cti = round(last.cti) if last and last.cti is not None else None
 rhr = min((r.rhr for r in daily if r.rhr), default=None)
 pmax = 856  # record releve sur les sorties recentes
 
+# --- fichiers d'entrainement telechargeables (.zwo Zwift, .erg Rouvy...) ----
+# Memes segments que le push vers le compteur et que le tableau de bord : le
+# module est la seule source. Ecrits sous /pub, donc accessibles sans mot de
+# passe, comme le reste de la vitrine.
+sys.path.insert(0, MON)
+try:
+    from coach_velo_seances import ecrire, code as code_seance
+    fichiers = ecrire(f"{OUT}/seances", ftp)
+except Exception as exc:
+    print("seances non exportees :", type(exc).__name__, exc)
+    fichiers, code_seance = {}, lambda t: None
+
 data = {"ftp": ftp, "vo2": vo2, "cti": cti, "rhr": rhr, "pmax": pmax,
         "heures42": heures42, "km42": km42, "dplus42": dplus42, "nsort": nsort,
         "volume": volume, "familles": ORDRE_FAM,
@@ -159,6 +171,7 @@ data = {"ftp": ftp, "vo2": vo2, "cti": cti, "rhr": rhr, "pmax": pmax,
         "faits": [{"d": s["d"].isoformat(), "fam": s["fam"], "sport": s["sport"],
                    "h": round(s["h"], 2), "km": round(s["km"], 1),
                    "dplus": round(s["dplus"])} for s in seances],
+        "fichiers": fichiers,
         "maj": today.strftime("%d/%m/%Y")}
 HTML = r"""<!doctype html>
 <html lang="fr"><head><meta charset="utf-8">
@@ -262,6 +275,15 @@ section{margin:34px 0 44px}
 .ns-l{color:var(--muted);font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.16em;display:block}
 .ns-t{font-size:18px;font-weight:700;letter-spacing:-.015em}
 .ns-p{color:var(--ink-2);font-size:13px;font-variant-numeric:tabular-nums;text-align:right}
+
+/* ---------- telechargement des seances (.zwo / .erg) ---------- */
+.dl{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-top:10px}
+.dl a{display:inline-flex;align-items:center;gap:6px;text-decoration:none;font-size:12px;
+  font-weight:600;color:var(--ink-2);background:var(--raised);border:1px solid var(--border);
+  border-radius:999px;padding:5px 11px;transition:border-color .18s,transform .18s}
+.dl a:hover{border-color:var(--accent);transform:translateY(-1px)}
+.dl .ar{font-size:13px;line-height:1}
+.dl .dlh{font-size:11px;color:var(--muted);flex-basis:100%;line-height:1.45;margin-top:1px}
 
 /* ---------- fiche + texte ---------- */
 .duo{display:grid;gap:26px;grid-template-columns:1fr;align-items:start}
@@ -415,7 +437,7 @@ footer{color:var(--muted);font-size:12.5px;padding:26px 0 40px;text-align:center
 <div><div class="n">__RHR__<em> bpm</em></div><div class="l">FC repos</div></div>
 </div>
 <div class="nextstrip">
-<div><span class="ns-l">Prochaine seance</span><span class="ns-t">__NEXT__</span></div>
+<div><span class="ns-l">Prochaine seance</span><span class="ns-t">__NEXT__</span>__NEXTDL__</div>
 <div class="ns-p">__FAITES__ / __TOTAL__ seances passees<br>__TAUX__</div>
 </div>
 </section>
@@ -640,6 +662,20 @@ function match(p, f){
 }
 let filtre = "tout", mois = "tout", semChoisie = "", choisi = null;
 
+/* ---------- fichiers d'entrainement : .zwo (Zwift, Rouvy) et .erg ----------
+   Seules les seances codees P01-P17 ont des segments ; les sorties libres
+   (SL, SV, SP...) n'ont rien a importer, on n'affiche alors aucun bouton. */
+function liens(seance){
+  const f = (D.fichiers||{})[String(seance||"").split(" ")[0]];
+  if (!f) return "";
+  const n = encodeURIComponent(f.base);
+  return `<div class="dl">
+    <a href="seances/${n}.zwo" download title="Zwift, Rouvy, MyWhoosh, indieVelo"><span class="ar">&darr;</span> Zwift <b>.zwo</b></a>
+    <a href="seances/${n}.erg" download title="Rouvy, TrainerRoad, Wahoo, GoldenCheetah"><span class="ar">&darr;</span> Rouvy <b>.erg</b></a>
+    <span class="dlh">${esc(f.duree)} de seance structuree — le .zwo garde les cibles en % de FTP,
+      le .erg les fige en watts a ${D.ftp} W.</span></div>`;
+}
+
 function detail(key){
   const el = document.getElementById("detail");
   const p = key!=null && key.p!=null ? D.plan[key.p] : null;
@@ -655,6 +691,7 @@ function detail(key){
     <div class="dn">${esc(p ? p.seance : "Sortie hors programme")}</div>
     <span class="vp" style="--vc:${col}">${etat}</span>`;
   if (p && p.note) h += `<div class="txt">${esc(p.note)}</div>`;
+  if (p) h += liens(p.seance);
   const act = faits[d] || [];
   h += `<div class="sep"></div>`;
   if (act.length){
@@ -861,6 +898,14 @@ if (!reduced) {
 taux = f"{data['taux']} % de seances tenues" if data["taux"] is not None else "verdicts en cours"
 nxt = data["next"]
 prochaine = f"{nxt['seance']} — {nxt['date'].split('-')[2]}/{nxt['date'].split('-')[1]}" if nxt else "programme termine"
+# Le bandeau est rendu cote serveur : ses liens de telechargement aussi.
+fnext = fichiers.get(code_seance(nxt["seance"])) if nxt else None
+nextdl = ('<div class="dl">'
+          f'<a href="seances/{fnext["base"]}.zwo" download title="Zwift, Rouvy, MyWhoosh, indieVelo">'
+          '<span class="ar">&darr;</span> Zwift <b>.zwo</b></a>'
+          f'<a href="seances/{fnext["base"]}.erg" download title="Rouvy, TrainerRoad, Wahoo, GoldenCheetah">'
+          '<span class="ar">&darr;</span> Rouvy <b>.erg</b></a>'
+          '</div>') if fnext else ""
 page = HTML
 for k, v in [("__FTP__", data["ftp"]), ("__VO2__", data["vo2"]), ("__PMAX__", data["pmax"]),
              ("__CTI__", data["cti"] if data["cti"] is not None else "–"),
@@ -868,7 +913,7 @@ for k, v in [("__FTP__", data["ftp"]), ("__VO2__", data["vo2"]), ("__PMAX__", da
              ("__HEURES__", data["heures42"]), ("__KM42__", data["km42"]),
              ("__DPLUS__", data["dplus42"]), ("__NSORT__", data["nsort"]),
              ("__FAITES__", data["faites"]), ("__TOTAL__", data["total"]),
-             ("__TAUX__", taux), ("__NEXT__", prochaine),
+             ("__TAUX__", taux), ("__NEXT__", prochaine), ("__NEXTDL__", nextdl),
              ("__JFIN__", max(0, data["jfin"])), ("__CIBLE__", data["cible"]),
              ("__MAJ__", data["maj"])]:
     page = page.replace(k, str(v))

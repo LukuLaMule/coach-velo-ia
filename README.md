@@ -62,7 +62,8 @@ Le principe : **Claude n'intervient que là où il apporte quelque chose** (anal
 | [`server/monitoring/coach-velo-dashboard.py`](server/monitoring/coach-velo-dashboard.py) | Dashboard privé (graphique forme/fatigue façon TrainingPeaks, en français humain) |
 | [`server/monitoring/coach-velo-pub.py`](server/monitoring/coach-velo-pub.py) | Page publique « vitrine » pour les réseaux |
 | [`server/monitoring/coach-velo-plan.tsv`](server/monitoring/coach-velo-plan.tsv) | Le programme 12 semaines, une ligne par séance |
-| [`mcp/push_program.py`](mcp/push_program.py) | Génère et pousse les 17 séances sur le compteur iGPSport (cibles en %FTP), après avoir supprimé les anciennes |
+| [`server/monitoring/coach_velo_seances.py`](server/monitoring/coach_velo_seances.py) | Le catalogue des 17 séances (segments en %FTP) + l'export `.zwo` / `.erg` téléchargeable depuis le dashboard |
+| [`mcp/push_program.py`](mcp/push_program.py) | Pousse les 17 séances du catalogue sur le compteur iGPSport (cibles en %FTP), après avoir supprimé les anciennes |
 | [`mcp/igpsport_cleanup.py`](mcp/igpsport_cleanup.py) | Supprime les séances P0x en double (aperçu par défaut, `--apply` pour agir) |
 | [`server/crontab.example`](server/crontab.example) | Les 3 crons qui font tourner le tout |
 | [`server/docker/docker-compose.example.yml`](server/docker/docker-compose.example.yml) | Hébergement : racine protégée, `/pub` et `/cal-*` ouverts |
@@ -118,6 +119,8 @@ Copier les scripts de `server/monitoring/`, adapter le plan, créer un topic ntf
 ### 4. Calendrier + pages
 
 Un conteneur nginx derrière Traefik sert le tout (voir le compose d'exemple). S'abonner au calendrier : Réglages → Calendrier → **Ajouter un cal. avec abonnement** → l'URL du `.ics`.
+
+Le dashboard **et la page publique** écrivent aussi `seances/*.zwo` et `seances/*.erg` à côté de leur `index.html` : la séance du jour (et n'importe quelle case du planning) se télécharge d'un clic pour être importée dans **Zwift, Rouvy, MyWhoosh, TrainerRoad ou Wahoo**. Le `.zwo` garde les cibles en % de FTP, le `.erg` les fige en watts à la FTP du moment — les deux sont réécrits à chaque génération de la page, donc ils suivent le test FTP.
 
 ## Pas de serveur ?
 
