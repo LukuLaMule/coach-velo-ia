@@ -17,6 +17,7 @@
 23 h ── Je dors          → la montre COROS enregistre sommeil, HRV, récupération
 7 h 00 ─ Claude analyse  → nuit + fatigue + séance prévue au programme
 7 h 01 ─ Le verdict      → notification ntfy : ✅ maintenue · ⚠️ allégée · 🛑 repos
+7 h 01 ─ Si j'ai sauté   → la séance manquée est repoussée, la suite recule d'un cran
 18 h ── Je roule guidé   → le compteur iGPSport affiche les watts cibles
 19 h 30  Tout se met à jour → calendrier Apple, dashboard, sans rien faire
 ```
@@ -62,6 +63,8 @@ Le principe : **Claude n'intervient que là où il apporte quelque chose** (anal
 | [`server/monitoring/coach-velo-dashboard.py`](server/monitoring/coach-velo-dashboard.py) | Dashboard privé (graphique forme/fatigue façon TrainingPeaks, en français humain) |
 | [`server/monitoring/coach-velo-pub.py`](server/monitoring/coach-velo-pub.py) | Page publique « vitrine » pour les réseaux |
 | [`server/monitoring/coach-velo-plan.tsv`](server/monitoring/coach-velo-plan.tsv) | Le programme 12 semaines, une ligne par séance |
+| [`server/monitoring/coach-velo-replanif.py`](server/monitoring/coach-velo-replanif.py) | Repère les séances non faites et **repousse le programme** d'un cran (aperçu par défaut, `--apply` pour écrire) |
+| [`server/monitoring/coach-velo-push.sh`](server/monitoring/coach-velo-push.sh) | Passe-plat vers `push_program.py` ; `--si-manquant` ne pousse que si des séances ont disparu du compteur |
 | [`server/monitoring/coach_velo_seances.py`](server/monitoring/coach_velo_seances.py) | Le catalogue des 17 séances (segments en %FTP) + l'export `.zwo` / `.erg` téléchargeable depuis le dashboard |
 | [`mcp/push_program.py`](mcp/push_program.py) | Pousse les 17 séances du catalogue sur le compteur iGPSport (cibles en %FTP), après avoir supprimé les anciennes |
 | [`mcp/igpsport_cleanup.py`](mcp/igpsport_cleanup.py) | Supprime les séances P0x en double (aperçu par défaut, `--apply` pour agir) |
@@ -121,6 +124,20 @@ Copier les scripts de `server/monitoring/`, adapter le plan, créer un topic ntf
 Un conteneur nginx derrière Traefik sert le tout (voir le compose d'exemple). S'abonner au calendrier : Réglages → Calendrier → **Ajouter un cal. avec abonnement** → l'URL du `.ics`.
 
 Le dashboard **et la page publique** écrivent aussi `seances/*.zwo` et `seances/*.erg` à côté de leur `index.html` : la séance du jour (et n'importe quelle case du planning) se télécharge d'un clic pour être importée dans **Zwift, Rouvy, MyWhoosh, TrainerRoad ou Wahoo**. Le `.zwo` garde les cibles en % de FTP, le `.erg` les fige en watts à la FTP du moment — les deux sont réécrits à chaque génération de la page, donc ils suivent le test FTP.
+
+## Quand les séances sautent
+
+Un plan qui reste théorique pendant que les séances sautent ne sert à rien. Chaque matin, avant le verdict, le coach compare le prévu et le réalisé (minutes de vélo du jour contre durée attendue) et appelle `coach-velo-replanif.py`, qui **traite les dates comme des créneaux** : à quatre séances par semaine il n'existe aucun trou libre, alors la séance manquée reprend la tête de la file et les suivantes reculent d'un cran. Le rythme de la semaine reste celui qui était prévu.
+
+Les garde-fous sont dans le script, pas dans le prompt — c'est la seule écriture vraiment destructrice du projet :
+
+- une source d'activités en échec **bloque** tout : une liste vide veut dire « je ne sais pas », pas « il n'a rien fait » ;
+- un JSON d'activités qui n'est pas du jour est refusé, sinon toutes les séances passeraient pour manquées ;
+- deux rattrapages par matin au maximum, les plus récents : au-delà ce n'est plus un oubli mais une interruption, et empiler dix séances en retard ne ferait que fabriquer la semaine ratée suivante ;
+- une séance déjà rattrapée une fois et manquée à nouveau est abandonnée — et **marquée comme telle** dans le plan, sinon le lendemain matin la verrait encore en retard et décalerait le programme un cran de plus, chaque jour ;
+- le retest FTP du 31 octobre est une ancre, et ce qui ne rentre plus est sacrifié **en commençant par la récupération**, jamais par l'affûtage.
+
+La 4ᵉ colonne du plan garde la trace (`rattrapee:`, `decalee:`, `abandonnee`) ; les trois générateurs de pages lisent les trois premières et l'ignorent. Et si la séance manquait tout simplement du compteur, `coach-velo-push.sh --si-manquant` la repousse : c'est souvent la vraie explication du trou.
 
 ## Pas de serveur ?
 

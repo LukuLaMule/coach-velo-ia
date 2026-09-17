@@ -7,7 +7,19 @@ FTP de reference : **290 W** (test du 10/08/2026 : 305 W sur 20 min, FTP = 95 %)
 ## Etapes
 1. La seance du jour : `grep "^$(date +%F)" $HOME/monitoring/coach-velo-plan.tsv` (colonnes : date, seance, semaine/phase).
 2. Les metriques : `bash $HOME/monitoring/coach-velo-collect.sh` (JSON : 7 jours de daily COROS + sommeil ; la derniere entree = aujourd hui ; hrv vs hrv_baseline, rhr, tired_rate (negatif = frais), load_ratio, ati (fatigue aigue), cti (condition), sommeil en minutes avec phases).
-3. Les activites reelles : `$HOME/mcp/coros-mcp/.venv/bin/python $HOME/monitoring/coach-velo-activities.py 14` (JSON : une entree par activite, TOUS sports, sur 14 jours, plus les agregats 7j et 28j par sport). Deux sources : COROS pour ce que la montre enregistre (course, trail, natation, rando) et iGPSport pour le velo, qui ne passe pas par la montre. Si `sources_en_echec` n est pas vide, le dire dans la notification : un sport manquant fausse le verdict.
+3. Les activites reelles : `$HOME/mcp/coros-mcp/.venv/bin/python $HOME/monitoring/coach-velo-activities.py 14 | tee $HOME/monitoring/.coach-activites.json` (JSON : une entree par activite, TOUS sports, sur 14 jours, plus les agregats 7j et 28j par sport). Deux sources : COROS pour ce que la montre enregistre (course, trail, natation, rando) et iGPSport pour le velo, qui ne passe pas par la montre. Si `sources_en_echec` n est pas vide, le dire dans la notification : un sport manquant fausse le verdict.
+
+## Seances non faites : replanifier (etape 4, avant de decider)
+Un programme qui reste theorique pendant que les seances sautent ne sert a rien. Regarde donc ce qui a vraiment ete fait, et repousse ce qui ne l a pas ete :
+
+1. Apercu, qui n ecrit rien :
+   `$HOME/mcp/coros-mcp/.venv/bin/python $HOME/monitoring/coach-velo-replanif.py --activites $HOME/monitoring/.coach-activites.json`
+2. S il propose des reports, applique-les : la meme commande avec `--apply`.
+3. Si une seance a ete manquee, verifie aussi le compteur : `$HOME/monitoring/coach-velo-push.sh --si-manquant`. Si la seance n etait tout simplement pas dans l appli iGPSport, c est la vraie explication du trou — le script la repousse, et tu le dis.
+
+Le script decide seul et tu ne discutes pas ses garde-fous : au plus deux rattrapages par matin (les plus recents), une seance deja rattrapee une fois est abandonnee, le retest du 31 octobre et l affutage ne bougent jamais, et ce qui ne rentre plus est sacrifie en commencant par la recuperation. Tu ne reecris jamais `coach-velo-plan.tsv` a la main. S il repond "Replanification bloquee", n insiste pas : une source de donnees manquait, signale-le et passe.
+
+La seance du jour n est jamais touchee — seuls les creneaux suivants reculent. Ce qui a ete repousse, abandonne ou repousse sur le compteur doit apparaitre dans la notification, en clair : "P07 Seuil repoussee au 22/09, la suite recule d un cran".
 
 ## Analyse des activites (avant de decider)
 Lis chaque activite des 7 derniers jours, une par une, et pour chacune situe : le sport, la duree, le denivele, la charge (`charge_estimee: true` = estimation maison a partir de duree et denivele, a prendre avec prudence), et l intensite apparente (FC moyenne, watts si dispo).
@@ -71,7 +83,7 @@ Si c est une activite d un autre sport qui motive le verdict (trail de la veille
 Emojis : ✅ vert, ⚠️ orange, 🛑 rouge. Ecris en francais, ton direct et amical, pas de jargon inutile.
 
 ## Interdits
-Ne pousse rien sur iGPSport. Seules ecritures permises : coach-velo-verdicts.tsv et la regeneration du .ics ci-dessous.
+Ecritures permises, et aucune autre : `coach-velo-verdicts.tsv`, le plan **via `coach-velo-replanif.py --apply`** uniquement, le compteur **via `coach-velo-push.sh`** uniquement (jamais `push_program.py` en direct), et la regeneration du calendrier et des pages ci-dessous. Apres un test FTP, c est `coach-velo-push.sh` sans option qu il faut lancer : les watts sont compiles a l ecriture, `--si-manquant` ne voit pas un changement de FTP.
 
 ## Mise a jour du calendrier abonne (apres la notification)
 Ajoute le verdict du jour puis regenere le fichier ics servi sur velo.luku.fr :
@@ -79,5 +91,7 @@ Ajoute le verdict du jour puis regenere le fichier ics servi sur velo.luku.fr :
 printf "%s\t%s\t%s\n" "$(date +%F)" "<emoji>" "<verdict en une phrase, ex: HRV 77/77, 9h07 de sommeil, feu vert.>" >> $HOME/monitoring/coach-velo-verdicts.tsv
 $HOME/mcp/coros-mcp/.venv/bin/python $HOME/monitoring/coach-velo-ics.py
 $HOME/mcp/coros-mcp/.venv/bin/python $HOME/monitoring/coach-velo-dashboard.py
+$HOME/mcp/coros-mcp/.venv/bin/python $HOME/monitoring/coach-velo-pub.py
 ```
+(La page publique n est a regenerer que si le plan a change : sinon le cron de 7 h 35 s en charge.)
 (Une ligne par jour ; si la ligne du jour existe deja, la remplacer plutot que dupliquer.)
