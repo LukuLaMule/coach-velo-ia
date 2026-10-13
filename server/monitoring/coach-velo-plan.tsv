@@ -1,6 +1,5 @@
 2026-08-10	P01 Test FTP 20min	S1 Base
 2026-08-13	P16 Recup Z1 1h	S1 Base
-2026-08-15	P17 Ventoux depuis Bedoin	S1 Base
 2026-08-18	P03 Sweet Spot 3x15	S2 Base
 2026-08-20	P02 Sweet Spot 2x15	S2 Base
 2026-08-22	P15 Endurance Z2 2h	S2 Base
@@ -14,25 +13,22 @@
 2026-09-10	P16 Recup Z1 1h	S5 Reprise
 2026-09-12	SV Sortie vallonnee 3h	S5 Reprise	abandonnee
 2026-09-17	P04 Sweet Spot 2x20	S6 Seuil
-2026-09-19	SP Endurance plat 2h	S6 Seuil	rattrapee:2026-09-13
-2026-09-22	P07 Seuil 2x15	S7 Seuil	rattrapee:2026-09-15
-2026-09-24	SL Sortie longue montagne 3h30	S7 Seuil	decalee:2026-09-19
+2026-09-19	P15 Endurance Z2 2h	S6 Seuil	rattrapee:2026-09-13
+2026-09-21	P07 Seuil 2x15	S7 Seuil	rattrapee:2026-09-15
+2026-09-22	SL Sortie longue montagne 3h30	S7 Seuil	decalee:2026-09-24
 2026-09-26	P08 Seuil 3x12	S7 Seuil	decalee:2026-09-22
-2026-09-27	P09 Over-Unders 3x9	S7 Seuil	decalee:2026-09-24
-2026-09-29	SL Sortie longue montagne 4h	S8 Recup	decalee:2026-09-26
-2026-10-01	SP Endurance plat 1h30	S8 Recup	decalee:2026-09-27
-2026-10-03	P05 Sweet Spot 1x20 leger	S8 Recup	decalee:2026-09-29
-2026-10-06	SV Sortie vallonnee 2h30 souple	S9 VO2max	decalee:2026-10-03
-2026-10-08	P10 VO2max 5x3	S9 VO2max	decalee:2026-10-06
-2026-10-10	P04 Sweet Spot 2x20	S9 VO2max	decalee:2026-10-08
-2026-10-11	SL Sortie longue montagne 3h30	S9 VO2max	decalee:2026-10-10
-2026-10-13	SP Endurance plat 1h30	S10 VO2max	decalee:2026-10-11
-2026-10-15	P11 VO2max 6x3	S10 VO2max	decalee:2026-10-13
-2026-10-17	P09 Over-Unders 3x9	S10 VO2max	decalee:2026-10-15
-2026-10-20	SL Sortie longue montagne 4h	S11 Pic	decalee:2026-10-17
-2026-10-22	P12 VO2max 4x4	S11 Pic	decalee:2026-10-20
-2026-10-24	P13 VO2max 30-30 2x10	S11 Pic	decalee:2026-10-22
-2026-10-25	SL Sortie longue montagne 4h30	S11 Pic	decalee:2026-10-24
-2026-10-27	P14 VO2max 3x3 rappel	S12 Affutage
-2026-10-29	P16 Recup Z1 1h	S12 Affutage
+2026-09-29	P09 Over-Unders 3x9	S8 Recup	rattrapee:2026-09-27
+2026-10-03	SL Sortie longue montagne 4h	S8 Recup	rattrapee:2026-10-01
+2026-10-08	SV Sortie vallonnee 2h30 souple	S9 VO2max	decalee:2026-10-06
+2026-10-10	P10 VO2max 5x3	S9 VO2max	decalee:2026-10-08
+2026-10-11	P04 Sweet Spot 2x20	S9 VO2max	decalee:2026-10-10
+2026-10-13	P11 VO2max 6x3	S10 VO2max	decalee:2026-10-17
+2026-10-15	SP Endurance plat 1h30	S10 VO2max	decalee:2026-10-13
+2026-10-17	SL Sortie longue montagne 3h30	S10 VO2max	decalee:2026-10-13
+2026-10-20	P09 Over-Unders 3x9	S11 Pic	decalee:2026-10-17
+2026-10-22	P13 VO2max 30-30 2x10	S11 Pic	decalee:2026-10-25
+2026-10-24	P12 VO2max 4x4	S11 Pic	decalee:2026-10-22
+2026-10-25	SL Sortie longue montagne 4h	S11 Pic	decalee:2026-10-22
+2026-10-27	SL Sortie longue montagne 3h	S12 Affutage	decalee:2026-10-25
+2026-10-29	P14 VO2max 3x3 rappel	S12 Affutage	decalee:2026-10-27
 2026-10-31	P01 Retest FTP 20min	S12 Affutage
