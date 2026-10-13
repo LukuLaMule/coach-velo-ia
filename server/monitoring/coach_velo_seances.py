@@ -11,23 +11,47 @@ module importe, pas un executable, et `import coach-velo-seances` n'existe pas.
 
 # --- description des seances -------------------------------------------------
 
-def step(name, intensity, secs, lo=None, hi=None, note=None):
+# Cadences visees (tr/min). Le compteur iGPSport n'accepte qu'une cible par
+# segment, et c'est la puissance : la cadence passe donc dans la note du
+# segment (30 caracteres au plus), que le compteur affiche pendant l'effort.
+CAD_SOUPLE = (85, 95)     # echauffement, recup, endurance, sweet spot, seuil
+CAD_VO2 = (90, 100)       # VO2max : tourner les jambes, pas ecraser les pedales
+CAD_SPRINT = (95, 105)    # 30-30
+CAD_MUR = (75, 85)        # cols a 9-10 % : 85+ n'y est pas tenable
+
+
+def _note(cad, note):
+    """'85-95 rpm, regulier a bloc' : la cadence d'abord, le compteur coupe a 30."""
+    morceaux = [f"{cad[0]}-{cad[1]} rpm"] if cad else []
+    if note:
+        morceaux.append(note)
+    texte = ", ".join(morceaux)
+    if len(texte) > 30:
+        raise ValueError(f"note trop longue pour le compteur ({len(texte)} > 30) : {texte!r}")
+    return texte
+
+
+def step(name, intensity, secs, lo=None, hi=None, note=None, cad=CAD_SOUPLE):
     s = {"name": name, "intensity": intensity,
          "duration": {"type": "time", "value": secs}}
     if lo is not None:
         s["target"] = {"type": "power_percent_ftp", "value": 0, "min": lo, "max": hi}
-    if note:
-        s["note"] = note
+    if cad:
+        s["cad"] = list(cad)
+    if cad or note:
+        s["note"] = _note(cad, note)
     return s
 
 
-def lap(name, intensity, lo=None, hi=None, note=None):
+def lap(name, intensity, lo=None, hi=None, note=None, cad=CAD_SOUPLE):
     """Segment ferme au bouton LAP : duree inconnue, donc non exportable."""
     s = {"name": name, "intensity": intensity, "duration": {"type": "lap_button"}}
     if lo is not None:
         s["target"] = {"type": "power_percent_ftp", "value": 0, "min": lo, "max": hi}
-    if note:
-        s["note"] = note
+    if cad:
+        s["cad"] = list(cad)
+    if cad or note:
+        s["note"] = _note(cad, note)
     return s
 
 
@@ -45,14 +69,14 @@ def catalogue(ftp):
     WU_LONG = step("Echauffement progressif", "warmup", 1200, 50, 75)
     CD = step("Retour au calme", "cooldown", 600, 40, 55)
 
-    return [
+    return [_avec_cadence(w) for w in [
      {"title": "P01 Test FTP 20min",
       "description": "Semaines 1 et 12. Apres echauffement + 3x1min haute cadence, 20min a fond regulier. FTP = 95% de la puissance moyenne des 20min. Communiquer le resultat.",
       "steps": [WU_LONG,
-                rep(3, [step("1min cadence 100+", "active", 60, 90, 100),
+                rep(3, [step("1min cadence 100+", "active", 60, 90, 100, cad=(100, 110)),
                         step("Recup", "rest", 60, 45, 55)]),
                 step("Tranquille", "rest", 300, 50, 60),
-                step("TEST 20min A FOND", "active", 1200, 95, 120, "Regulier, a bloc"),
+                step("TEST 20min A FOND", "active", 1200, 95, 120, "regulier, a bloc"),
                 CD]},
      {"title": "P02 Sweet Spot 2x15",
       "description": f"Semaine 1. 2x15min a {w(88,93)}, recup 5min.",
@@ -88,27 +112,27 @@ def catalogue(ftp):
                             step("Recup", "rest", 300, 45, 55)]), CD]},
      {"title": "P10 VO2max 5x3",
       "description": f"Semaine 9. 5x3min a {w(112,118)}, recup 3min. Dur mais payant.",
-      "steps": [WU_LONG, rep(5, [step("VO2 3min", "active", 180, 112, 118),
+      "steps": [WU_LONG, rep(5, [step("VO2 3min", "active", 180, 112, 118, cad=CAD_VO2),
                                  step("Recup", "rest", 180, 45, 55)]), CD]},
      {"title": "P11 VO2max 6x3",
       "description": f"Semaine 10. 6x3min a {w(112,118)}, recup 3min.",
-      "steps": [WU_LONG, rep(6, [step("VO2 3min", "active", 180, 112, 118),
+      "steps": [WU_LONG, rep(6, [step("VO2 3min", "active", 180, 112, 118, cad=CAD_VO2),
                                  step("Recup", "rest", 180, 45, 55)]), CD]},
      {"title": "P12 VO2max 4x4",
       "description": f"Semaine 11. 4x4min a {w(108,114)}, recup 4min.",
-      "steps": [WU_LONG, rep(4, [step("VO2 4min", "active", 240, 108, 114),
+      "steps": [WU_LONG, rep(4, [step("VO2 4min", "active", 240, 108, 114, cad=CAD_VO2),
                                  step("Recup", "rest", 240, 45, 55)]), CD]},
      {"title": "P13 VO2max 30-30 2x10",
       "description": "Semaine 11. 2 series de 10x(30s a 120% / 30s a 60% FTP), recup 5min entre series.",
-      "steps": [WU_LONG, rep(2, [rep(10, [step("30s fort", "active", 30, 115, 125),
+      "steps": [WU_LONG, rep(2, [rep(10, [step("30s fort", "active", 30, 115, 125, cad=CAD_SPRINT),
                                           step("30s souple", "rest", 30, 55, 65)]),
                                  step("Recup serie", "rest", 300, 45, 55)]), CD]},
      {"title": "P14 VO2max 3x3 rappel",
       "description": f"Semaine 12 (affutage). 3x3min a {w(110,115)}, recup 3min.",
-      "steps": [WU, rep(3, [step("VO2 3min", "active", 180, 110, 115),
+      "steps": [WU, rep(3, [step("VO2 3min", "active", 180, 110, 115, cad=CAD_VO2),
                             step("Recup", "rest", 180, 45, 55)]), CD]},
      {"title": "P15 Endurance Z2 2h",
-      "description": f"Toutes les semaines. 2h a {w(60,72)}, cadence souple.",
+      "description": f"Toutes les semaines. 2h a {w(60,72)}.",
       "steps": [step("Mise en route", "warmup", 600, 50, 62),
                 step("Endurance Z2", "active", 6000, 60, 72),
                 step("Retour au calme", "cooldown", 600, 45, 55)]},
@@ -118,10 +142,38 @@ def catalogue(ftp):
      {"title": "P17 Ventoux Bedoin",
       "description": f"15 aout. Pacing : {w(78,86)} sur toute la montee, max {round(0.91*ftp)}W dans la foret. LAP a Saint-Esteve et au Chalet Reynard.",
       "steps": [lap("Approche Z2", "warmup", 55, 70, "LAP a Saint-Esteve"),
-                lap("Foret 9-10%", "active", 78, 86, "LAP au Chalet Reynard"),
-                lap("Final decouvert", "active", 78, 88, "Gerer le vent, finir fort"),
-                lap("Descente + retour", "cooldown")]},
-    ]
+                lap("Foret 9-10%", "active", 78, 86, "LAP Chalet Reynard", cad=CAD_MUR),
+                lap("Final decouvert", "active", 78, 88, "vent, finir fort", cad=CAD_MUR),
+                lap("Descente + retour", "cooldown", cad=None)]},
+    ]]
+
+
+def _cadences(steps, actif):
+    out = []
+    for s in steps:
+        if s.get("type") == "repeat":
+            out += _cadences(s["steps"], actif)
+        elif s.get("cad") and (s.get("intensity") == "active") == actif:
+            out.append(tuple(s["cad"]))
+    return out
+
+
+def _avec_cadence(w):
+    """Ajoute a la description la cadence des efforts, puis celle du reste."""
+    efforts = sorted(set(_cadences(w["steps"], True)), key=lambda c: -c[0])
+    reste = sorted(set(_cadences(w["steps"], False)))
+    morceaux = []
+    if efforts and set(reste) <= set(efforts) and len(efforts) == 1:
+        a, b = efforts[0]
+        w["description"] = w["description"].rstrip() + f" Cadence {a}-{b} rpm."
+        return w
+    if efforts:
+        morceaux.append("Cadence " + " / ".join(f"{a}-{b}" for a, b in efforts) + " rpm sur les efforts")
+    if reste and reste != efforts:
+        morceaux.append(" / ".join(f"{a}-{b}" for a, b in reste) + " rpm ailleurs")
+    if morceaux:
+        w["description"] = w["description"].rstrip() + " " + ", ".join(morceaux) + "."
+    return w
 
 
 # --- mise a plat --------------------------------------------------------------
@@ -154,7 +206,7 @@ def aplatir(steps):
         plat.append({"nom": s["name"], "intensite": s.get("intensity", "active"),
                      "secs": s["duration"]["value"],
                      "lo": cible.get("min"), "hi": cible.get("max"),
-                     "note": s.get("note")})
+                     "note": s.get("note"), "cad": s.get("cad")})
     return plat
 
 
@@ -203,7 +255,8 @@ def zwo(wkt, segments, auteur="Coach velo IA"):
             # Bloc tenu : on vise le milieu de la fourchette, comme le fait le
             # mode ERG du home trainer. Pas de PowerLow/PowerHigh ici : Zwift en
             # ferait une rampe de 88 a 93%, alors que la consigne est un palier.
-            ouvre = f'<SteadyState Duration="{seg["secs"]}" Power="{(lo+hi)/2:.3f}">'
+            cad = f' Cadence="{round(sum(seg["cad"]) / 2)}"' if seg.get("cad") else ""
+            ouvre = f'<SteadyState Duration="{seg["secs"]}" Power="{(lo+hi)/2:.3f}"{cad}>'
             ferme = "</SteadyState>"
         lignes.append(f"    {ouvre}{texte}{ferme}")
     lignes += ["  </workout>", "</workout_file>", ""]
