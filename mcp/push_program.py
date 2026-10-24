@@ -108,7 +108,26 @@ def lister_seances():
         return [], True
     return [], False
 
-WORKOUTS = catalogue(FTP)
+def sans_repetition_imbriquee(steps):
+    """iGPSport n'affiche pas une repetition dans une repetition : la boucle
+    interieure arrivait VIDE sur le compteur (P13 30-30 2x10, vu le
+    2026-10-24 : 40 min au lieu de 1 h, les 2x10 30/30 absents). On deroule
+    donc toute repetition qui en contient une autre ; le contenu et l'ordre
+    des segments ne changent pas, seule la forme passe a un niveau."""
+    out = []
+    for s in steps:
+        if s.get("type") == "repeat":
+            interieur = sans_repetition_imbriquee(s["steps"])
+            if any(x.get("type") == "repeat" for x in interieur):
+                out += interieur * s["times"]
+            else:
+                out.append({**s, "steps": interieur})
+        else:
+            out.append(s)
+    return out
+
+
+WORKOUTS = [{**w, "steps": sans_repetition_imbriquee(w["steps"])} for w in catalogue(FTP)]
 
 old, fiable = lister_seances()
 if not fiable:
